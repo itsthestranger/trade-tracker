@@ -54,8 +54,23 @@ export const initDatabase = async () => {
     
     if (!isInitialized) {
       console.log("Initializing database for the first time");
-      await seedDefaultData();
-      await localforage.setItem('db_initialized', true);
+      
+      // Clear any existing data to ensure a clean start
+      for (const store of Object.keys(stores)) {
+        await stores[store].clear();
+        console.log(`Cleared store: ${store}`);
+      }
+      
+      // Seed the default data
+      const seedResult = await seedDefaultData();
+      
+      if (seedResult) {
+        console.log("Setting db_initialized flag");
+        await localforage.setItem('db_initialized', true);
+      } else {
+        console.error("Failed to seed default data");
+        throw new Error("Failed to seed default data");
+      }
     } else {
       console.log("Database already initialized");
       
@@ -64,6 +79,7 @@ export const initDatabase = async () => {
         const keys = await stores[store].keys();
         const ids = keys.map(k => parseInt(k)).filter(id => !isNaN(id));
         counters[store] = ids.length > 0 ? Math.max(...ids) : 0;
+        console.log(`Loaded counter for ${store}: ${counters[store]}`);
       }
     }
     
@@ -95,11 +111,19 @@ const seedDefaultData = async () => {
         
         let id = 1;
         for (const item of data) {
-          await store.setItem(id.toString(), { id, ...item });
+          // Make sure to create a new object to avoid reference issues
+          const record = { id, ...JSON.parse(JSON.stringify(item)) };
+          
+          // Log each item we're inserting for debugging
+          console.log(`Inserting into ${table}:`, record);
+          
+          // Insert the item into the store
+          await store.setItem(id.toString(), record);
           id++;
         }
         
         counters[table] = id - 1;
+        console.log(`Successfully inserted ${id-1} items into ${table}`);
       }
     }
     

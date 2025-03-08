@@ -1,4 +1,4 @@
-// src/components/backtest/TradeTable.jsx
+// src/components/backtest/TradeTable.jsx - Modified instrumentsMap part
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Box, 
@@ -23,6 +23,7 @@ import {
 import { executeQuery, executeNonQuery, getLastInsertId } from '../../services/database/db';
 import TradeDocumentationDialog from './TradeDocumentationDialog';
 import FilterDialog from './FilterDialog';
+import localforage from 'localforage';
 
 const TradeTable = ({ isBacktest = true, backtestId = null, onTradeUpdate }) => {
   const [trades, setTrades] = useState([]);
@@ -39,33 +40,72 @@ const TradeTable = ({ isBacktest = true, backtestId = null, onTradeUpdate }) => 
     page: 0,
   });
 
-  const fetchFilters = useCallback(() => {
+  // Fetch instruments and entry methods directly from localforage
+  const fetchSettingsDirect = useCallback(async () => {
     try {
-      const results = executeQuery(
-        `SELECT * FROM filters WHERE type = ? ORDER BY id`,
-        [isBacktest ? 'backtest' : 'trade']
-      );
-      setFilters(results);
-    } catch (error) {
-      console.error('Error fetching filters:', error);
-    }
-  }, [isBacktest]);
-
-  const fetchSettings = useCallback(() => {
-    try {
-      // Fetch instruments
-      const instrumentsData = executeQuery('SELECT * FROM instruments ORDER BY name');
-      setInstruments(instrumentsData);
+      // Fetch instruments directly
+      const instrumentsStore = localforage.createInstance({ name: 'instruments' });
+      const instrumentsList = [];
+      await instrumentsStore.iterate((value) => {
+        instrumentsList.push(value);
+      });
+      console.log("Direct instruments fetch in TradeTable:", instrumentsList);
+      setInstruments(instrumentsList);
       
-      // Fetch entry methods
-      const entryMethodsData = executeQuery('SELECT * FROM entry_methods ORDER BY name');
-      setEntryMethods(entryMethodsData);
+      // Fetch entry methods directly
+      const entryMethodsStore = localforage.createInstance({ name: 'entry_methods' });
+      const entryMethodsList = [];
+      await entryMethodsStore.iterate((value) => {
+        entryMethodsList.push(value);
+      });
+      setEntryMethods(entryMethodsList);
     } catch (error) {
-      console.error('Error fetching settings:', error);
+      console.error("Error fetching settings in TradeTable:", error);
     }
   }, []);
 
+  const fetchFilters = useCallback(async () => {
+    try {
+      console.log("Fetching filters directly from localforage...");
+      const filtersStore = localforage.createInstance({ name: 'filters' });
+      const filtersList = [];
+      
+      await filtersStore.iterate((value) => {
+        // Only include filters matching the current type
+        if (value.type === (isBacktest ? 'backtest' : 'trade')) {
+          filtersList.push(value);
+        }
+      });
+      
+      console.log(`Loaded ${filtersList.length} filters of type ${isBacktest ? 'backtest' : 'trade'}`);
+      setFilters(filtersList);
+    } catch (error) {
+      console.error('Error fetching filters:', error);
+      // Initialize with empty array if there's an error
+      setFilters([]);
+    }
+  }, [isBacktest]);
+
+  useEffect(() => {
+    // Load settings first, then fetch trades
+    fetchSettingsDirect().then(() => {
+      fetchFilters();
+    });
+  }, [fetchSettingsDirect, fetchFilters]);
+
+  useEffect(() => {
+    // Only fetch trades after instruments and entry methods are loaded
+    if (instruments.length > 0 && entryMethods.length > 0) {
+      fetchTrades();
+    }
+  }, [instruments, entryMethods, selectedFilter]);
+
   const fetchTrades = useCallback(() => {
+    if (!instruments.length || !entryMethods.length) {
+      console.log("Waiting for instruments and entry methods to load...");
+      return;
+    }
+    
     setLoading(true);
     try {
       let query = `
@@ -124,14 +164,14 @@ const TradeTable = ({ isBacktest = true, backtestId = null, onTradeUpdate }) => 
       const results = executeQuery(query, params);
       
       // Process results to calculate any derived values
-      const processedTrades = results.map(trade => ({
+      const processedTrades = Array.isArray(results) ? results.map(trade => ({
         ...trade,
         // Calculate derived fields if not already set
         stop_ticks: trade.stop_ticks || calculateStopTicks(trade),
         pot_result: trade.pot_result || calculatePotResult(trade),
         result: trade.result || calculateResult(trade),
         average: trade.average || calculateAverage(trade),
-      }));
+      })) : [];
       
       setTrades(processedTrades);
       if (onTradeUpdate) {
@@ -142,18 +182,7 @@ const TradeTable = ({ isBacktest = true, backtestId = null, onTradeUpdate }) => 
     } finally {
       setLoading(false);
     }
-  }, [isBacktest, backtestId, selectedFilter, filters, onTradeUpdate]);
-
-  useEffect(() => {
-    fetchSettings();
-    fetchFilters();
-  }, [fetchSettings, fetchFilters]);
-
-  useEffect(() => {
-    if (instruments.length > 0 && entryMethods.length > 0) {
-      fetchTrades();
-    }
-  }, [instruments, entryMethods, fetchTrades]);
+  }, [isBacktest, backtestId, selectedFilter, filters, onTradeUpdate, instruments, entryMethods]);
 
   // Helper functions for calculations
   const calculateStopTicks = (trade) => {
@@ -183,402 +212,516 @@ const TradeTable = ({ isBacktest = true, backtestId = null, onTradeUpdate }) => 
     return scores.length > 0 ? scores.reduce((sum, score) => sum + score, 0) / scores.length : null;
   };
 
-  const handleAddTrade = () => {
-    // Create a new trade with default values
-    const defaultInstrumentId = instruments.length > 0 ? instruments[0].id : null;
-    const defaultEntryMethodId = entryMethods.length > 0 ? entryMethods[0].id : null;
-    
-    const today = new Date().toISOString().split('T')[0];
-    const time = new Date().toTimeString().substring(0, 5);
-    const dayOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date().getDay()];
-    
+  const handleAddTrade = async () => {
     try {
-      executeNonQuery(`
-        INSERT INTO trades (
-          date, day, confirmation_time, entry_time, instrument_id, confirmation_type, 
-          direction, session, entry_method_id, stopped_out, status, 
-          entry, stop, target, is_backtest, is_planned, backtest_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [
-        today, 
-        dayOfWeek, 
-        time, 
-        time, 
-        defaultInstrumentId, 
-        'Wick Confirmation', 
-        'Long', 
-        'ODR', 
-        defaultEntryMethodId, 
-        0, 
-        'Winner', 
-        0, 
-        0, 
-        0, 
-        isBacktest ? 1 : 0, 
-        isBacktest ? 0 : 1, 
-        isBacktest ? backtestId : null
-      ]);
+      // Get first instrument and entry method for defaults
+      let defaultInstrumentId = null;
+      let defaultEntryMethodId = null;
       
-      // Refresh trades
-      fetchTrades();
-    } catch (error) {
-      console.error('Error adding trade:', error);
-    }
-  };
-
-  const handleDuplicateTrade = (tradeId) => {
-    try {
-      // First, get the trade to duplicate
-      const tradeResult = executeQuery(`SELECT * FROM trades WHERE id = ?`, [tradeId]);
+      if (instruments.length > 0) {
+        defaultInstrumentId = instruments[0].id;
+      } else {
+        const instrumentsStore = localforage.createInstance({ name: 'instruments' });
+        await instrumentsStore.iterate((value, key, iterationNumber) => {
+          if (iterationNumber === 1) {
+            defaultInstrumentId = value.id;
+          }
+        });
+      }
       
-      if (tradeResult.length > 0) {
-        const trade = tradeResult[0];
-        
-        // Insert a duplicate with new ID
+      if (entryMethods.length > 0) {
+        defaultEntryMethodId = entryMethods[0].id;
+      } else {
+        const entryMethodsStore = localforage.createInstance({ name: 'entry_methods' });
+        await entryMethodsStore.iterate((value, key, iterationNumber) => {
+          if (iterationNumber === 1) {
+            defaultEntryMethodId = value.id;
+          }
+        });
+      }
+      
+      if (!defaultInstrumentId) {
+        alert("No instruments found. Please add instruments in Settings first.");
+        return;
+      }
+      
+      const today = new Date().toISOString().split('T')[0];
+      const time = new Date().toTimeString().substring(0, 5);
+      const dayOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date().getDay()];
+      
+      try {
         executeNonQuery(`
           INSERT INTO trades (
             date, day, confirmation_time, entry_time, instrument_id, confirmation_type, 
             direction, session, entry_method_id, stopped_out, status, 
-            ret_entry, sd_exit, entry, stop, target, exit,
-            preparation, entry_score, stop_loss, target_score, management, rules,
-            is_backtest, is_planned, backtest_id
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            entry, stop, target, is_backtest, is_planned, backtest_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
-          trade.date, 
-          trade.day, 
-          trade.confirmation_time, 
-          trade.entry_time, 
-          trade.instrument_id, 
-          trade.confirmation_type, 
-          trade.direction, 
-          trade.session, 
-          trade.entry_method_id, 
-          trade.stopped_out, 
-          trade.status, 
-          trade.ret_entry, 
-          trade.sd_exit, 
-          trade.entry, 
-          trade.stop, 
-          trade.target, 
-          trade.exit,
-          trade.preparation, 
-          trade.entry_score, 
-          trade.stop_loss, 
-          trade.target_score, 
-          trade.management, 
-          trade.rules,
+          today, 
+          dayOfWeek, 
+          time, 
+          time, 
+          defaultInstrumentId, 
+          'Wick Confirmation', 
+          'Long', 
+          'ODR', 
+          defaultEntryMethodId, 
+          0, 
+          'Winner', 
+          0, 
+          0, 
+          0, 
           isBacktest ? 1 : 0, 
-          trade.is_planned, 
+          isBacktest ? 0 : 1, 
           isBacktest ? backtestId : null
         ]);
         
-        const newTradeId = getLastInsertId();
-        
-        // Duplicate documentation if any
-        const journalResult = executeQuery(`SELECT * FROM trade_journal WHERE trade_id = ?`, [tradeId]);
-        if (journalResult.length > 0) {
-          const journal = journalResult[0];
-          
-          executeNonQuery(`
-            INSERT INTO trade_journal (trade_id, journal_text, tradingview_link, body_mind_state)
-            VALUES (?, ?, ?, ?)
-          `, [
-            newTradeId,
-            journal.journal_text,
-            journal.tradingview_link,
-            journal.body_mind_state
-          ]);
-        }
-        
-        // Duplicate confluences if any
-        const confluencesResult = executeQuery(`SELECT * FROM trade_confluences WHERE trade_id = ?`, [tradeId]);
-        if (confluencesResult.length > 0) {
-          confluencesResult.forEach(confluence => {
-            executeNonQuery(`
-              INSERT INTO trade_confluences (trade_id, confluence_id)
-              VALUES (?, ?)
-            `, [
-              newTradeId,
-              confluence.confluence_id
-            ]);
-          });
-        }
-        
         // Refresh trades
         fetchTrades();
+      } catch (error) {
+        console.error('Error adding trade:', error);
+        alert(`Error adding trade: ${error.message}`);
       }
     } catch (error) {
+      console.error('Error in handleAddTrade:', error);
+      alert(`Error preparing to add trade: ${error.message}`);
+    }
+  };
+
+  // TradeTable.jsx - Missing handler functions implementation
+
+  const handleDuplicateTrade = (tradeId) => {
+    try {
+      console.log(`Duplicating trade with ID: ${tradeId}`);
+      
+      // First, get the trade to duplicate - using direct localforage access
+      const tradesStore = localforage.createInstance({ name: 'trades' });
+      tradesStore.getItem(tradeId.toString())
+        .then(async (trade) => {
+          if (!trade) {
+            console.error(`Trade with ID ${tradeId} not found`);
+            return;
+          }
+
+          // Generate new ID
+          const keys = await tradesStore.keys();
+          const nextId = keys.length > 0 
+            ? Math.max(...keys.map(k => parseInt(k))) + 1 
+            : 1;
+
+          // Create a duplicate without the ID
+          const duplicateTrade = {
+            ...trade,
+            id: nextId,
+            is_backtest: isBacktest ? 1 : 0,
+            backtest_id: isBacktest ? backtestId : null,
+            created_at: new Date().toISOString()
+          };
+          
+          // Save the duplicate
+          await tradesStore.setItem(nextId.toString(), duplicateTrade);
+          console.log(`Created duplicate trade with ID: ${nextId}`);
+          
+          // Duplicate documentation if any
+          const journalStore = localforage.createInstance({ name: 'trade_journal' });
+          const journalKeys = await journalStore.keys();
+          
+          // Find any journal entries for the original trade
+          for (const key of journalKeys) {
+            const journal = await journalStore.getItem(key);
+            if (journal && journal.trade_id === tradeId) {
+              // Create a new journal entry for the duplicated trade
+              const journalNextId = parseInt(key) + 1;
+              await journalStore.setItem(journalNextId.toString(), {
+                ...journal,
+                id: journalNextId,
+                trade_id: nextId,
+                created_at: new Date().toISOString()
+              });
+              console.log(`Duplicated journal entry with ID: ${journalNextId}`);
+            }
+          }
+          
+          // Duplicate confluences if any
+          const confluencesStore = localforage.createInstance({ name: 'trade_confluences' });
+          const confluenceKeys = await confluencesStore.keys();
+          
+          // Find any confluences for the original trade
+          for (const key of confluenceKeys) {
+            const confluence = await confluencesStore.getItem(key);
+            if (confluence && confluence.trade_id === tradeId) {
+              // Create a new confluence entry for the duplicated trade
+              const confluenceNextId = parseInt(key) + 1;
+              await confluencesStore.setItem(confluenceNextId.toString(), {
+                ...confluence,
+                id: confluenceNextId,
+                trade_id: nextId
+              });
+              console.log(`Duplicated confluence link with ID: ${confluenceNextId}`);
+            }
+          }
+          
+          // Refresh trades
+          fetchTrades();
+        });
+    } catch (error) {
       console.error('Error duplicating trade:', error);
+      alert(`Error duplicating trade: ${error.message}`);
     }
   };
 
   const handleDeleteTrade = (tradeId) => {
     try {
-      executeNonQuery(`DELETE FROM trades WHERE id = ?`, [tradeId]);
-      fetchTrades();
+      console.log(`Deleting trade with ID: ${tradeId}`);
+      
+      // Delete directly from storage
+      const tradesStore = localforage.createInstance({ name: 'trades' });
+      tradesStore.removeItem(tradeId.toString())
+        .then(() => {
+          console.log(`Deleted trade with ID: ${tradeId}`);
+          
+          // Also delete related journal entries and confluences
+          const journalStore = localforage.createInstance({ name: 'trade_journal' });
+          const confluencesStore = localforage.createInstance({ name: 'trade_confluences' });
+          
+          // Find and delete journal entries
+          journalStore.iterate((value, key) => {
+            if (value.trade_id === tradeId) {
+              journalStore.removeItem(key);
+              console.log(`Deleted journal entry with key: ${key}`);
+            }
+          });
+          
+          // Find and delete confluence links
+          confluencesStore.iterate((value, key) => {
+            if (value.trade_id === tradeId) {
+              confluencesStore.removeItem(key);
+              console.log(`Deleted confluence link with key: ${key}`);
+            }
+          });
+          
+          // Refresh trades
+          fetchTrades();
+        });
     } catch (error) {
       console.error('Error deleting trade:', error);
+      alert(`Error deleting trade: ${error.message}`);
     }
   };
 
   const handleOpenDocumentation = (tradeId) => {
+    console.log(`Opening documentation for trade ID: ${tradeId}`);
     setSelectedTradeId(tradeId);
     setOpenDocDialog(true);
   };
 
   const handleCloseDocumentation = () => {
+    console.log('Closing documentation dialog');
     setSelectedTradeId(null);
     setOpenDocDialog(false);
   };
 
   const handleOpenFilterDialog = () => {
+    console.log('Opening filter dialog');
     setOpenFilterDialog(true);
   };
 
   const handleCloseFilterDialog = () => {
+    console.log('Closing filter dialog');
     setOpenFilterDialog(false);
-    fetchFilters(); // Refresh filters after dialog closes
+    // Refresh filters after dialog closes
+    fetchFilters();
   };
 
   const handleFilterChange = (event, newValue) => {
-    setSelectedFilter(newValue);
+    // Make sure newValue is valid (exists in our filters array + 1 for "All Trades")
+    if (newValue === 0 || (Array.isArray(filters) && newValue <= filters.length)) {
+      console.log(`Changing selected filter to ${newValue}`);
+      setSelectedFilter(newValue);
+    } else {
+      console.warn(`Invalid filter index: ${newValue}, reverting to "All Trades"`);
+      setSelectedFilter(0); // Default to "All Trades"
+    }
   };
 
   const handleCellEditCommit = (params) => {
     try {
       const { id, field, value } = params;
+      console.log(`Editing cell: trade ID ${id}, field ${field}, value ${value}`);
       
-      // Handle special calculations for certain fields
-      if (['entry', 'stop', 'target', 'exit'].includes(field)) {
-        const trade = trades.find(t => t.id === id);
-        if (trade) {
-          // Update the field
-          executeNonQuery(`UPDATE trades SET ${field} = ? WHERE id = ?`, [value, id]);
-          
-          // Recalculate derived fields
-          if (field === 'entry' || field === 'stop') {
-            const stopTicks = Math.abs(
-              field === 'entry' ? value - trade.stop : trade.entry - value
-            ) / (trade.tickValue || 0.25);
-            
-            executeNonQuery(`UPDATE trades SET stop_ticks = ? WHERE id = ?`, [stopTicks, id]);
+      // Get the trade directly from storage
+      const tradesStore = localforage.createInstance({ name: 'trades' });
+      tradesStore.getItem(id.toString())
+        .then(async (trade) => {
+          if (!trade) {
+            console.error(`Trade with ID ${id} not found`);
+            return;
           }
           
-          if (field === 'entry' || field === 'stop' || field === 'target') {
-            const entry = field === 'entry' ? value : trade.entry;
-            const stop = field === 'stop' ? value : trade.stop;
-            const target = field === 'target' ? value : trade.target;
+          // Create updated trade object
+          const updatedTrade = { ...trade };
+          
+          // Handle special calculations for certain fields
+          if (['entry', 'stop', 'target', 'exit'].includes(field)) {
+            // Update the field
+            updatedTrade[field] = value;
             
-            const potResult = Math.abs(target - entry) / Math.abs(entry - stop);
-            executeNonQuery(`UPDATE trades SET pot_result = ? WHERE id = ?`, [potResult, id]);
-            
-            // Recalculate result if exit exists
-            if (trade.exit !== null) {
-              const result = Math.abs(trade.exit - entry) / Math.abs(entry - stop) * (trade.exit > entry ? 1 : -1);
-              executeNonQuery(`UPDATE trades SET result = ? WHERE id = ?`, [result, id]);
+            // Recalculate derived fields
+            if (field === 'entry' || field === 'stop') {
+              const stopTicks = Math.abs(
+                field === 'entry' ? value - trade.stop : trade.entry - value
+              ) / (trade.tickValue || 0.25);
+              
+              updatedTrade.stop_ticks = stopTicks;
             }
+            
+            if (field === 'entry' || field === 'stop' || field === 'target') {
+              const entry = field === 'entry' ? value : trade.entry;
+              const stop = field === 'stop' ? value : trade.stop;
+              const target = field === 'target' ? value : trade.target;
+              
+              if (entry !== undefined && stop !== undefined && target !== undefined) {
+                const potResult = Math.abs(target - entry) / Math.abs(entry - stop);
+                updatedTrade.pot_result = potResult;
+              }
+              
+              // Recalculate result if exit exists
+              if (trade.exit !== null && trade.exit !== undefined) {
+                const entry = field === 'entry' ? value : trade.entry;
+                const stop = field === 'stop' ? value : trade.stop;
+                
+                if (entry !== undefined && stop !== undefined) {
+                  const result = Math.abs(trade.exit - entry) / Math.abs(entry - stop) * (trade.exit > entry ? 1 : -1);
+                  updatedTrade.result = result;
+                }
+              }
+            }
+            
+            if (field === 'exit') {
+              if (trade.entry !== undefined && trade.stop !== undefined) {
+                const result = Math.abs(value - trade.entry) / Math.abs(trade.entry - trade.stop) * (value > trade.entry ? 1 : -1);
+                updatedTrade.result = result;
+                
+                // Update status based on result
+                let status = 'Break Even';
+                if (result > 0.1) status = 'Winner';
+                else if (result < -0.1) status = 'Expense';
+                
+                updatedTrade.status = status;
+              }
+            }
+          } else if (['preparation', 'entry_score', 'stop_loss', 'target_score', 'management', 'rules'].includes(field)) {
+            // Update the score
+            updatedTrade[field] = value;
+            
+            // Recalculate average
+            const scores = [
+              field === 'preparation' ? value : trade.preparation,
+              field === 'entry_score' ? value : trade.entry_score,
+              field === 'stop_loss' ? value : trade.stop_loss,
+              field === 'target_score' ? value : trade.target_score,
+              field === 'management' ? value : trade.management,
+              field === 'rules' ? value : trade.rules
+            ].filter(score => score !== null && score !== undefined);
+            
+            const average = scores.length > 0 ? scores.reduce((sum, score) => sum + score, 0) / scores.length : null;
+            updatedTrade.average = average;
+          } else {
+            // For other fields, just update directly
+            if (field === 'day') {
+              // Validate day of week
+              const validDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+              if (!validDays.includes(value)) {
+                console.warn(`Invalid day: ${value}, ignoring update`);
+                return; // Ignore invalid days
+              }
+            }
+            
+            // For other fields, just update directly
+            updatedTrade[field] = value;
           }
           
-          if (field === 'exit') {
-            const result = Math.abs(value - trade.entry) / Math.abs(trade.entry - trade.stop) * (value > trade.entry ? 1 : -1);
-            executeNonQuery(`UPDATE trades SET result = ? WHERE id = ?`, [result, id]);
-            
-            // Update status based on result
-            let status = 'Break Even';
-            if (result > 0.1) status = 'Winner';
-            else if (result < -0.1) status = 'Expense';
-            
-            executeNonQuery(`UPDATE trades SET status = ? WHERE id = ?`, [status, id]);
-          }
-        }
-      } else if (['preparation', 'entry_score', 'stop_loss', 'target_score', 'management', 'rules'].includes(field)) {
-        // Update the score
-        executeNonQuery(`UPDATE trades SET ${field} = ? WHERE id = ?`, [value, id]);
-        
-        // Recalculate average
-        const scores = executeQuery(`
-          SELECT preparation, entry_score, stop_loss, target_score, management, rules
-          FROM trades WHERE id = ?
-        `, [id])[0];
-        
-        const validScores = Object.values(scores).filter(score => score !== null);
-        const average = validScores.length > 0 ? validScores.reduce((sum, score) => sum + score, 0) / validScores.length : null;
-        
-        executeNonQuery(`UPDATE trades SET average = ? WHERE id = ?`, [average, id]);
-      } else {
-        // For other fields, just update directly
-        if (field === 'day') {
-          // Validate day of week
-          const validDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-          if (!validDays.includes(value)) {
-            return; // Ignore invalid days
-          }
-        }
-        
-        // For other fields, just update directly
-        executeNonQuery(`UPDATE trades SET ${field} = ? WHERE id = ?`, [value, id]);
-      }
-      
-      // Refresh trades to reflect changes
-      fetchTrades();
+          // Save the updated trade
+          await tradesStore.setItem(id.toString(), updatedTrade);
+          console.log(`Updated trade with ID ${id}`);
+          
+          // Refresh trades to reflect changes
+          fetchTrades();
+        });
     } catch (error) {
       console.error('Error updating cell:', error);
+      alert(`Error updating cell: ${error.message}`);
     }
   };
 
-  const columns = [
-    { field: 'day', headerName: 'Day', width: 70, editable: true },
-    { field: 'date', headerName: 'Date', width: 110, editable: true, type: 'date' },
-    { field: 'confirmation_time', headerName: 'Conf. Time', width: 95, editable: true },
-    { field: 'entry_time', headerName: 'Entry Time', width: 95, editable: true },
-    { 
-      field: 'instrument_id', 
-      headerName: 'Instrument', 
-      width: 150, 
-      editable: true, 
-      type: 'singleSelect',
-      valueOptions: instruments.map(instrument => ({ value: instrument.id, label: instrument.name })),
-      valueFormatter: (params) => {
-        const instrument = instruments.find(i => i.id === params.value);
-        return instrument ? instrument.name : '';
-      }
-    },
-    { 
-      field: 'confirmation_type', 
-      headerName: 'Conf. Type', 
-      width: 130, 
-      editable: true,
-      type: 'singleSelect',
-      valueOptions: ['Wick Confirmation', 'Full Confirmation', 'Early Indication', 'No Confirmation']
-    },
-    { 
-      field: 'direction', 
-      headerName: 'Direction', 
-      width: 90, 
-      editable: true,
-      type: 'singleSelect',
-      valueOptions: ['Long', 'Short']
-    },
-    { 
-      field: 'session', 
-      headerName: 'Session', 
-      width: 90, 
-      editable: true,
-      type: 'singleSelect',
-      valueOptions: ['ODR', 'RDR']
-    },
-    { 
-      field: 'entry_method_id', 
-      headerName: 'Entry Method', 
-      width: 150, 
-      editable: true,
-      type: 'singleSelect',
-      valueOptions: entryMethods.map(method => ({ value: method.id, label: method.name })),
-      valueFormatter: (params) => {
-        const method = entryMethods.find(m => m.id === params.value);
-        return method ? method.name : '';
-      }
-    },
-    { 
-      field: 'stopped_out', 
-      headerName: 'Stopped Out', 
-      width: 100, 
-      editable: true,
-      type: 'boolean'
-    },
-    { 
-      field: 'status', 
-      headerName: 'Status', 
-      width: 100, 
-      editable: true,
-      type: 'singleSelect',
-      valueOptions: ['Winner', 'Expense', 'Break Even']
-    },
-    { field: 'ret_entry', headerName: 'Ret. Entry', width: 90, editable: true, type: 'number' },
-    { field: 'sd_exit', headerName: 'SD Exit', width: 80, editable: true, type: 'number' },
-    { field: 'entry', headerName: 'Entry', width: 90, editable: true, type: 'number' },
-    { field: 'stop', headerName: 'Stop', width: 90, editable: true, type: 'number' },
-    { field: 'target', headerName: 'Target', width: 90, editable: true, type: 'number' },
-    { field: 'exit', headerName: 'Exit', width: 90, editable: true, type: 'number' },
-    { field: 'stop_ticks', headerName: 'Stop Ticks', width: 90, editable: false, type: 'number' },
-    { field: 'pot_result', headerName: 'Pot. Result', width: 90, editable: false, type: 'number' },
-    { field: 'result', headerName: 'Result', width: 90, editable: false, type: 'number' },
-    { 
-      field: 'preparation', 
-      headerName: 'Prep.', 
-      width: 70, 
-      editable: true, 
-      type: 'singleSelect',
-      valueOptions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    },
-    { 
-      field: 'entry_score', 
-      headerName: 'Entry', 
-      width: 70, 
-      editable: true, 
-      type: 'singleSelect',
-      valueOptions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    },
-    { 
-      field: 'stop_loss', 
-      headerName: 'Stop Loss', 
-      width: 85, 
-      editable: true, 
-      type: 'singleSelect',
-      valueOptions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    },
-    { 
-      field: 'target_score', 
-      headerName: 'Target', 
-      width: 70, 
-      editable: true, 
-      type: 'singleSelect',
-      valueOptions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    },
-    { 
-      field: 'management', 
-      headerName: 'Mgmt.', 
-      width: 70, 
-      editable: true, 
-      type: 'singleSelect',
-      valueOptions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    },
-    { 
-      field: 'rules', 
-      headerName: 'Rules', 
-      width: 70, 
-      editable: true, 
-      type: 'singleSelect',
-      valueOptions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    },
-    { field: 'average', headerName: 'Average', width: 80, editable: false, type: 'number' },
-    {
-      field: 'actions',
-      headerName: 'Actions',
-      width: 150,
-      sortable: false,
-      filterable: false,
-      renderCell: (params) => (
-        <>
-          <Tooltip title="Documentation">
-            <IconButton onClick={() => handleOpenDocumentation(params.row.id)}>
-              <DocumentIcon />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Duplicate">
-            <IconButton onClick={() => handleDuplicateTrade(params.row.id)}>
-              <DuplicateIcon />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Delete">
-            <IconButton onClick={() => handleDeleteTrade(params.row.id)}>
-              <DeleteIcon />
-            </IconButton>
-          </Tooltip>
-        </>
-      ),
-    },
-  ];
+  // Create columns array safely
+  const getColumns = () => {
+    const instrumentOptions = Array.isArray(instruments) 
+      ? instruments.map(instrument => ({ value: instrument.id, label: instrument.name }))
+      : [];
+      
+    const entryMethodOptions = Array.isArray(entryMethods)
+      ? entryMethods.map(method => ({ value: method.id, label: method.name }))
+      : [];
+    
+    return [
+      { field: 'day', headerName: 'Day', width: 70, editable: true },
+      { field: 'date', headerName: 'Date', width: 110, editable: true, type: 'date' },
+      { field: 'confirmation_time', headerName: 'Conf. Time', width: 95, editable: true },
+      { field: 'entry_time', headerName: 'Entry Time', width: 95, editable: true },
+      { 
+        field: 'instrument_id', 
+        headerName: 'Instrument', 
+        width: 150, 
+        editable: true, 
+        type: 'singleSelect',
+        valueOptions: instrumentOptions,
+        valueFormatter: (params) => {
+          const instrument = Array.isArray(instruments) 
+            ? instruments.find(i => i.id === params.value)
+            : null;
+          return instrument ? instrument.name : '';
+        }
+      },
+      { 
+        field: 'confirmation_type', 
+        headerName: 'Conf. Type', 
+        width: 130, 
+        editable: true,
+        type: 'singleSelect',
+        valueOptions: ['Wick Confirmation', 'Full Confirmation', 'Early Indication', 'No Confirmation']
+      },
+      { 
+        field: 'direction', 
+        headerName: 'Direction', 
+        width: 90, 
+        editable: true,
+        type: 'singleSelect',
+        valueOptions: ['Long', 'Short']
+      },
+      { 
+        field: 'session', 
+        headerName: 'Session', 
+        width: 90, 
+        editable: true,
+        type: 'singleSelect',
+        valueOptions: ['ODR', 'RDR']
+      },
+      { 
+        field: 'entry_method_id', 
+        headerName: 'Entry Method', 
+        width: 150, 
+        editable: true,
+        type: 'singleSelect',
+        valueOptions: entryMethodOptions,
+        valueFormatter: (params) => {
+          const method = Array.isArray(entryMethods) 
+            ? entryMethods.find(m => m.id === params.value)
+            : null;
+          return method ? method.name : '';
+        }
+      },
+      { 
+        field: 'stopped_out', 
+        headerName: 'Stopped Out', 
+        width: 100, 
+        editable: true,
+        type: 'boolean'
+      },
+      { 
+        field: 'status', 
+        headerName: 'Status', 
+        width: 100, 
+        editable: true,
+        type: 'singleSelect',
+        valueOptions: ['Winner', 'Expense', 'Break Even']
+      },
+      { field: 'ret_entry', headerName: 'Ret. Entry', width: 90, editable: true, type: 'number' },
+      { field: 'sd_exit', headerName: 'SD Exit', width: 80, editable: true, type: 'number' },
+      { field: 'entry', headerName: 'Entry', width: 90, editable: true, type: 'number' },
+      { field: 'stop', headerName: 'Stop', width: 90, editable: true, type: 'number' },
+      { field: 'target', headerName: 'Target', width: 90, editable: true, type: 'number' },
+      { field: 'exit', headerName: 'Exit', width: 90, editable: true, type: 'number' },
+      { field: 'stop_ticks', headerName: 'Stop Ticks', width: 90, editable: false, type: 'number' },
+      { field: 'pot_result', headerName: 'Pot. Result', width: 90, editable: false, type: 'number' },
+      { field: 'result', headerName: 'Result', width: 90, editable: false, type: 'number' },
+      { 
+        field: 'preparation', 
+        headerName: 'Prep.', 
+        width: 70, 
+        editable: true, 
+        type: 'singleSelect',
+        valueOptions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+      },
+      { 
+        field: 'entry_score', 
+        headerName: 'Entry', 
+        width: 70, 
+        editable: true, 
+        type: 'singleSelect',
+        valueOptions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+      },
+      { 
+        field: 'stop_loss', 
+        headerName: 'Stop Loss', 
+        width: 85, 
+        editable: true, 
+        type: 'singleSelect',
+        valueOptions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+      },
+      { 
+        field: 'target_score', 
+        headerName: 'Target', 
+        width: 70, 
+        editable: true, 
+        type: 'singleSelect',
+        valueOptions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+      },
+      { 
+        field: 'management', 
+        headerName: 'Mgmt.', 
+        width: 70, 
+        editable: true, 
+        type: 'singleSelect',
+        valueOptions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+      },
+      { 
+        field: 'rules', 
+        headerName: 'Rules', 
+        width: 70, 
+        editable: true, 
+        type: 'singleSelect',
+        valueOptions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+      },
+      { field: 'average', headerName: 'Average', width: 80, editable: false, type: 'number' },
+      {
+        field: 'actions',
+        headerName: 'Actions',
+        width: 150,
+        sortable: false,
+        filterable: false,
+        renderCell: (params) => (
+          <>
+            <Tooltip title="Documentation">
+              <IconButton onClick={() => handleOpenDocumentation(params.row.id)}>
+                <DocumentIcon />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Duplicate">
+              <IconButton onClick={() => handleDuplicateTrade(params.row.id)}>
+                <DuplicateIcon />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Delete">
+              <IconButton onClick={() => handleDeleteTrade(params.row.id)}>
+                <DeleteIcon />
+              </IconButton>
+            </Tooltip>
+          </>
+        ),
+      },
+    ];
+  };
 
   return (
     <Box sx={{ height: 'calc(100vh - 300px)', width: '100%' }}>
@@ -586,7 +729,7 @@ const TradeTable = ({ isBacktest = true, backtestId = null, onTradeUpdate }) => 
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2, display: 'flex', alignItems: 'center' }}>
         <Tabs value={selectedFilter} onChange={handleFilterChange}>
           <Tab label="All Trades" />
-          {filters.map((filter, index) => (
+          {Array.isArray(filters) && filters.map((filter, index) => (
             <Tab key={filter.id} label={filter.name} />
           ))}
         </Tabs>
@@ -612,6 +755,15 @@ const TradeTable = ({ isBacktest = true, backtestId = null, onTradeUpdate }) => 
         </Button>
       </Box>
       
+      {/* Debug info */}
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="body2" color="text.secondary">
+          Instruments loaded: {instruments.length}, 
+          Entry Methods loaded: {entryMethods.length}, 
+          Filters loaded: {Array.isArray(filters) ? filters.length : 0}
+        </Typography>
+      </Box>
+      
       {/* Trade Table */}
       {instruments.length === 0 || entryMethods.length === 0 ? (
         <Box sx={{ p: 3, textAlign: 'center' }}>
@@ -625,7 +777,7 @@ const TradeTable = ({ isBacktest = true, backtestId = null, onTradeUpdate }) => 
       ) : (
         <DataGrid
           rows={trades}
-          columns={columns}
+          columns={getColumns()}
           loading={loading}
           components={{
             LoadingOverlay: CircularProgress,

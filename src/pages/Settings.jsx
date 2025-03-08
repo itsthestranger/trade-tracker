@@ -1,4 +1,4 @@
-// src/pages/Settings.jsx
+// src/pages/Settings.jsx - Updated to use direct localforage instead of executeQuery
 import React, { useState, useEffect } from 'react';
 import { Box, Typography, Tabs, Tab, CircularProgress } from '@mui/material';
 import InstrumentsSettings from '../components/settings/InstrumentsSettings';
@@ -6,6 +6,9 @@ import EntryMethodsSettings from '../components/settings/EntryMethodsSettings';
 import AccountsSettings from '../components/settings/AccountsSettings';
 import ConfluencesSettings from '../components/settings/ConfluencesSettings';
 import { executeQuery } from '../services/database/db';
+
+// Direct access to localforage for more reliable data fetching
+import localforage from 'localforage';
 
 // Tab panel component
 function TabPanel(props) {
@@ -45,75 +48,124 @@ const Settings = () => {
   const [minRequiredConfluences, setMinRequiredConfluences] = useState(3);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        setIsLoading(true);
-        
-        // Fetch instruments
-        const instrumentsData = executeQuery('SELECT * FROM instruments ORDER BY name');
-        setInstruments(Array.isArray(instrumentsData) ? instrumentsData : []);
-        
-        // Fetch entry methods
-        const entryMethodsData = executeQuery('SELECT * FROM entry_methods ORDER BY name');
-        setEntryMethods(Array.isArray(entryMethodsData) ? entryMethodsData : []);
-        
-        // Fetch accounts
-        const accountsData = executeQuery('SELECT * FROM accounts ORDER BY name');
-        setAccounts(Array.isArray(accountsData) ? accountsData : []);
-        
-        // Fetch confluences
-        const confluencesData = executeQuery('SELECT * FROM confluences ORDER BY name');
-        setConfluences(Array.isArray(confluencesData) ? confluencesData : []);
-        
-        // Fetch minimum confluences required
-        const minConfluencesData = executeQuery("SELECT value FROM app_settings WHERE key = 'minimumConfluencesRequired'");
-        if (Array.isArray(minConfluencesData) && minConfluencesData.length > 0) {
-          setMinRequiredConfluences(parseInt(minConfluencesData[0].value) || 3);
+  // Fetch data directly from localforage stores
+  const fetchDataDirect = async () => {
+    try {
+      console.log("Fetching data directly from localforage...");
+      setIsLoading(true);
+      
+      // Fetch instruments directly
+      const instrumentsStore = localforage.createInstance({ name: 'instruments' });
+      const instrumentsData = [];
+      await instrumentsStore.iterate((value, key) => {
+        instrumentsData.push(value);
+      });
+      console.log("Direct instruments fetch:", instrumentsData);
+      setInstruments(instrumentsData);
+      
+      // Fetch entry methods directly
+      const entryMethodsStore = localforage.createInstance({ name: 'entry_methods' });
+      const entryMethodsData = [];
+      await entryMethodsStore.iterate((value, key) => {
+        entryMethodsData.push(value);
+      });
+      setEntryMethods(entryMethodsData);
+      
+      // Fetch accounts directly
+      const accountsStore = localforage.createInstance({ name: 'accounts' });
+      const accountsData = [];
+      await accountsStore.iterate((value, key) => {
+        accountsData.push(value);
+      });
+      setAccounts(accountsData);
+      
+      // Fetch confluences directly
+      const confluencesStore = localforage.createInstance({ name: 'confluences' });
+      const confluencesData = [];
+      await confluencesStore.iterate((value, key) => {
+        confluencesData.push(value);
+      });
+      setConfluences(confluencesData);
+      
+      // Fetch minimum confluences required
+      const appSettingsStore = localforage.createInstance({ name: 'app_settings' });
+      let minConfluencesValue = 3;
+      await appSettingsStore.iterate((value, key) => {
+        if (value.key === 'minimumConfluencesRequired') {
+          minConfluencesValue = parseInt(value.value) || 3;
         }
-        
-        setIsLoading(false);
-      } catch (err) {
-        console.error('Error fetching settings:', err);
-        setError(err);
-        setIsLoading(false);
-      }
-    };
-    
-    fetchSettings();
+      });
+      setMinRequiredConfluences(minConfluencesValue);
+      
+      setIsLoading(false);
+      console.log("Direct data fetch complete!");
+    } catch (err) {
+      console.error('Error in direct data fetch:', err);
+      setError(err);
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDataDirect();
   }, []);
 
   const handleTabChange = (event, newValue) => {
     setTabValue(newValue);
   };
 
-  const handleDataUpdate = (type) => {
-    // Refresh data when updates occur
+  const handleDataUpdate = async (type) => {
+    // Refresh data directly from localforage when updates occur
+    console.log(`Updating data for ${type}`);
+    
     try {
       switch (type) {
         case 'instruments':
-          const instrumentsData = executeQuery('SELECT * FROM instruments ORDER BY name');
-          setInstruments(Array.isArray(instrumentsData) ? instrumentsData : []);
+          const instrumentsStore = localforage.createInstance({ name: 'instruments' });
+          const instrumentsData = [];
+          await instrumentsStore.iterate((value, key) => {
+            instrumentsData.push(value);
+          });
+          console.log("Updated instruments:", instrumentsData);
+          setInstruments(instrumentsData);
           break;
         case 'entryMethods':
-          const entryMethodsData = executeQuery('SELECT * FROM entry_methods ORDER BY name');
-          setEntryMethods(Array.isArray(entryMethodsData) ? entryMethodsData : []);
+          const entryMethodsStore = localforage.createInstance({ name: 'entry_methods' });
+          const entryMethodsData = [];
+          await entryMethodsStore.iterate((value, key) => {
+            entryMethodsData.push(value);
+          });
+          setEntryMethods(entryMethodsData);
           break;
         case 'accounts':
-          const accountsData = executeQuery('SELECT * FROM accounts ORDER BY name');
-          setAccounts(Array.isArray(accountsData) ? accountsData : []);
+          const accountsStore = localforage.createInstance({ name: 'accounts' });
+          const accountsData = [];
+          await accountsStore.iterate((value, key) => {
+            accountsData.push(value);
+          });
+          setAccounts(accountsData);
           break;
         case 'confluences':
-          const confluencesData = executeQuery('SELECT * FROM confluences ORDER BY name');
-          setConfluences(Array.isArray(confluencesData) ? confluencesData : []);
+          const confluencesStore = localforage.createInstance({ name: 'confluences' });
+          const confluencesData = [];
+          await confluencesStore.iterate((value, key) => {
+            confluencesData.push(value);
+          });
+          setConfluences(confluencesData);
           break;
         case 'minConfluences':
-          const minConfluencesData = executeQuery("SELECT value FROM app_settings WHERE key = 'minimumConfluencesRequired'");
-          if (Array.isArray(minConfluencesData) && minConfluencesData.length > 0) {
-            setMinRequiredConfluences(parseInt(minConfluencesData[0].value) || 3);
-          }
+          const appSettingsStore = localforage.createInstance({ name: 'app_settings' });
+          let minConfluencesValue = 3;
+          await appSettingsStore.iterate((value, key) => {
+            if (value.key === 'minimumConfluencesRequired') {
+              minConfluencesValue = parseInt(value.value) || 3;
+            }
+          });
+          setMinRequiredConfluences(minConfluencesValue);
           break;
         default:
+          // Update all data
+          fetchDataDirect();
           break;
       }
     } catch (error) {

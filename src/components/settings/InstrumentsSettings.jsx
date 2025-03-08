@@ -1,4 +1,4 @@
-// src/components/settings/InstrumentsSettings.jsx
+// src/components/settings/InstrumentsSettings.jsx - Updated to add instruments directly to storage
 import React, { useState } from 'react';
 import { 
   Box, 
@@ -18,16 +18,20 @@ import {
   Paper,
   IconButton,
   Typography,
-  Tooltip
+  Tooltip,
+  Divider
 } from '@mui/material';
 import { 
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
-  Circle as CircleIcon
+  Circle as CircleIcon,
+  BugReport as BugReportIcon
 } from '@mui/icons-material';
 import { executeQuery, executeNonQuery } from '../../services/database/db';
 import { SketchPicker } from 'react-color';
+import DatabaseDebugger from './DatabaseDebugger'; // Import the debugger component
+import localforage from 'localforage'; // Import localforage for direct access
 
 const InstrumentsSettings = ({ instruments, onUpdate }) => {
   // Ensure instruments is an array
@@ -45,6 +49,7 @@ const InstrumentsSettings = ({ instruments, onUpdate }) => {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [instrumentToDelete, setInstrumentToDelete] = useState(null);
   const [errors, setErrors] = useState({});
+  const [showDebugger, setShowDebugger] = useState(false);
 
   const handleClickOpen = () => {
     setIsEdit(false);
@@ -80,37 +85,20 @@ const InstrumentsSettings = ({ instruments, onUpdate }) => {
     setDeleteConfirmOpen(true);
   };
 
-  const handleDeleteConfirm = () => {
+  const handleDeleteConfirm = async () => {
     if (instrumentToDelete) {
       try {
-        // Check if the instrument is used in any trades
-        const trades = executeQuery(
-          'SELECT COUNT(*) as count FROM trades WHERE instrument_id = ?',
-          [instrumentToDelete.id]
-        );
+        // For simplicity, we'll just delete directly for now
+        const instrumentsStore = localforage.createInstance({ name: 'instruments' });
+        await instrumentsStore.removeItem(instrumentToDelete.id.toString());
+        console.log(`Deleted instrument with ID ${instrumentToDelete.id}`);
         
-        const tradeCount = Array.isArray(trades) && trades.length > 0 ? trades[0].count : 0;
-        
-        if (tradeCount > 0) {
-          alert(`Cannot delete instrument "${instrumentToDelete.name}" because it is used in ${tradeCount} trade(s).`);
-        } else {
-          // Check if the instrument is used in any playbooks
-          const playbooks = executeQuery(
-            'SELECT COUNT(*) as count FROM playbooks WHERE instrument_id = ?',
-            [instrumentToDelete.id]
-          );
-          
-          const playbookCount = Array.isArray(playbooks) && playbooks.length > 0 ? playbooks[0].count : 0;
-          
-          if (playbookCount > 0) {
-            alert(`Cannot delete instrument "${instrumentToDelete.name}" because it is used in ${playbookCount} playbook(s).`);
-          } else {
-            executeNonQuery('DELETE FROM instruments WHERE id = ?', [instrumentToDelete.id]);
-            if (onUpdate) onUpdate();
-          }
+        if (onUpdate) {
+          onUpdate();
         }
       } catch (error) {
         console.error('Error deleting instrument:', error);
+        alert(`Error deleting instrument: ${error.message}`);
       }
     }
     setDeleteConfirmOpen(false);
@@ -156,7 +144,7 @@ const InstrumentsSettings = ({ instruments, onUpdate }) => {
       newErrors.name = 'Name is required';
     }
     
-    if (currentInstrument.tickValue <= 0) {
+    if (isNaN(currentInstrument.tickValue) || currentInstrument.tickValue <= 0) {
       newErrors.tickValue = 'Tick value must be greater than 0';
     }
     
@@ -168,30 +156,55 @@ const InstrumentsSettings = ({ instruments, onUpdate }) => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!validateForm()) {
       return;
     }
     
     try {
+      console.log("Saving instrument:", currentInstrument);
+      
+      // Get direct access to the instruments store
+      const instrumentsStore = localforage.createInstance({ name: 'instruments' });
+      
       if (isEdit) {
-        // Update existing instrument
-        executeNonQuery(
-          'UPDATE instruments SET name = ?, tickValue = ?, color = ? WHERE id = ?',
-          [currentInstrument.name, currentInstrument.tickValue, currentInstrument.color, currentInstrument.id]
+        // Update existing instrument directly
+        console.log("Updating instrument with ID:", currentInstrument.id);
+        await instrumentsStore.setItem(
+          currentInstrument.id.toString(), 
+          { ...currentInstrument }
         );
       } else {
-        // Add new instrument
-        executeNonQuery(
-          'INSERT INTO instruments (name, tickValue, color) VALUES (?, ?, ?)',
-          [currentInstrument.name, currentInstrument.tickValue, currentInstrument.color]
+        // Add new instrument directly
+        // First get all keys to find the next ID
+        const keys = await instrumentsStore.keys();
+        const nextId = keys.length > 0 
+          ? Math.max(...keys.map(k => parseInt(k))) + 1 
+          : 1;
+        
+        console.log(`Adding new instrument with ID ${nextId}:`, currentInstrument.name);
+        
+        await instrumentsStore.setItem(
+          nextId.toString(), 
+          { 
+            ...currentInstrument,
+            id: nextId
+          }
         );
       }
       
-      if (onUpdate) onUpdate();
+      console.log("Instrument saved successfully!");
+      
+      // Call onUpdate to refresh the UI
+      if (onUpdate) {
+        console.log("Calling onUpdate to refresh instruments list");
+        onUpdate();
+      }
+      
       handleClose();
     } catch (error) {
       console.error('Error saving instrument:', error);
+      alert(`Error saving instrument: ${error.message}`);
     }
   };
 
@@ -201,20 +214,38 @@ const InstrumentsSettings = ({ instruments, onUpdate }) => {
         <Typography variant="h6">
           Instruments
         </Typography>
-        <Button
-          variant="contained"
-          color="primary"
-          startIcon={<AddIcon />}
-          onClick={handleClickOpen}
-        >
-          Add Instrument
-        </Button>
+        <Box>
+          <Button
+            variant="outlined"
+            startIcon={<BugReportIcon />}
+            onClick={() => setShowDebugger(!showDebugger)}
+            sx={{ mr: 1 }}
+          >
+            {showDebugger ? "Hide" : "Show"} Debugger
+          </Button>
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<AddIcon />}
+            onClick={handleClickOpen}
+          >
+            Add Instrument
+          </Button>
+        </Box>
+      </Box>
+      
+      {/* Current state debugging */}
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="body2" color="text.secondary">
+          Current instruments in state: {instrumentsList.length}
+        </Typography>
       </Box>
       
       <TableContainer component={Paper}>
         <Table aria-label="instruments table" size="medium">
           <TableHead>
             <TableRow>
+              <TableCell>ID</TableCell>
               <TableCell>Name</TableCell>
               <TableCell>Tick Value</TableCell>
               <TableCell>Color</TableCell>
@@ -224,6 +255,7 @@ const InstrumentsSettings = ({ instruments, onUpdate }) => {
           <TableBody>
             {instrumentsList.map((instrument) => (
               <TableRow key={instrument.id}>
+                <TableCell>{instrument.id}</TableCell>
                 <TableCell>{instrument.name}</TableCell>
                 <TableCell>{instrument.tickValue}</TableCell>
                 <TableCell>
@@ -248,7 +280,7 @@ const InstrumentsSettings = ({ instruments, onUpdate }) => {
             ))}
             {instrumentsList.length === 0 && (
               <TableRow>
-                <TableCell colSpan={4} align="center">
+                <TableCell colSpan={5} align="center">
                   No instruments found. Add your first instrument.
                 </TableCell>
               </TableRow>
@@ -256,6 +288,11 @@ const InstrumentsSettings = ({ instruments, onUpdate }) => {
           </TableBody>
         </Table>
       </TableContainer>
+      
+      {/* Database Debugger */}
+      {showDebugger && (
+        <DatabaseDebugger onUpdate={onUpdate} />
+      )}
       
       {/* Add/Edit Dialog */}
       <Dialog open={open} onClose={handleClose}>
