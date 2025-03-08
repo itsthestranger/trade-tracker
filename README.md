@@ -1,70 +1,99 @@
-# Getting Started with Create React App
+# Trade Tracker Application
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A comprehensive trade backtesting, tracking, review, and journaling application built with React and SQLite for local data storage.
 
-## Available Scripts
+## Features
 
-In the project directory, you can run:
+- **Dashboard**: Visualize key performance indicators (KPIs) based on all trades taken
+- **Trades**: Track live trades with planning tools and documentation
+- **Backtest**: Track and analyze backtested trades with detailed performance reports
+- **Playbooks**: Set up playbooks per instrument with time and retracement clusters
+- **Settings**: Configure instruments, entry methods, accounts, and confluences
 
-### `npm start`
+## Technology Stack
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+- **Frontend**: React with Material UI components
+- **Data Storage**: SQLite via SQL.js for local data persistence
+- **Data Visualization**: Recharts for charts and data visualization
+- **Routing**: React Router for navigation
+- **State Management**: React Context API and hooks
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Getting Started
 
-### `npm test`
+### Prerequisites
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+- Node.js (v14 or later)
+- npm (v6 or later)
 
-### `npm run build`
+### Installation
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+1. Clone the repository:
+   ```
+   git clone https://github.com/yourusername/trade-tracker.git
+   cd trade-tracker
+   ```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+2. Install dependencies:
+   ```
+   npm install
+   ```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+3. Start the development server:
+   ```
+   npm start
+   ```
 
-### `npm run eject`
+4. Open [http://localhost:3000](http://localhost:3000) to view the application in your browser.
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+### Application Setup
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+1. First, go to the **Settings** page to configure:
+   - Instruments (with name, tick value, and color)
+   - Entry Methods
+   - Trading Accounts
+   - Confluences for trade analysis
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+2. Once Settings are configured, you can start using:
+   - **Backtest** section to add and track backtested trades
+   - **Trades** section for live trade planning and execution
+   - **Playbooks** section to set up detailed trade patterns for instruments
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+3. The **Dashboard** will automatically populate with metrics as you add trades.
 
-## Learn More
+## Application Structure
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+The application consists of five main sections:
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+1. **Dashboard**: Shows KPIs like winrate, total R, average metrics scores, etc.
+2. **Trades**: For tracking and planning live trades
+3. **Backtest**: For recording and analyzing backtested trades
+4. **Playbooks**: For setting up playbooks per instrument
+5. **Settings**: For configuring the application
 
-### Code Splitting
+## Database
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+The application uses SQLite for local data storage with the following main tables:
 
-### Analyzing the Bundle Size
+- `instruments`: Trading instruments configuration
+- `entry_methods`: Entry methods configuration
+- `accounts`: Trading accounts configuration
+- `confluences`: Confluences configuration
+- `trades`: Records of both backtested and live trades
+- `playbooks`: Playbook data per instrument
+- `trade_journal`: Documentation for trades
+- `trade_confluences`: Junction table linking trades to confluences
+- `filters`: Saved filters for trade analysis
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+All data is stored locally in your browser using the IndexedDB API via localforage.
 
-### Making a Progressive Web App
+## Contributing
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/your-feature-name`
+3. Commit your changes: `git commit -m 'Add your feature'`
+4. Push to the branch: `git push origin feature/your-feature-name`
+5. Submit a pull request
 
-### Advanced Configuration
+## License
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+This project is licensed under the MIT License - see the LICENSE file for details.
