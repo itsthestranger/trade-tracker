@@ -29,6 +29,7 @@ import {
   Delete as DeleteIcon
 } from '@mui/icons-material';
 import { executeQuery, executeNonQuery } from '../../services/database/db';
+import { ensureArray, safeMap } from '../../utils/arrayUtils';
 
 const ConfluencesSettings = ({ confluences, minConfluences, onUpdate }) => {
   const [open, setOpen] = useState(false);
@@ -220,7 +221,7 @@ const ConfluencesSettings = ({ confluences, minConfluences, onUpdate }) => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {confluences.map((confluence) => (
+            {ensureArray(confluences).map((confluence) => (
               <TableRow key={confluence.id}>
                 <TableCell>{confluence.name}</TableCell>
                 <TableCell align="right">

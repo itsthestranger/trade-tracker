@@ -21,6 +21,7 @@ import {
   Delete as DeleteIcon 
 } from '@mui/icons-material';
 import {executeNonQuery } from '../../services/database/db';
+import { ensureArray, safeMap } from '../../utils/arrayUtils';
 
 const BacktestList = ({ backtests, selectedBacktest, onBacktestSelect, onBacktestUpdate }) => {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -106,7 +107,7 @@ const BacktestList = ({ backtests, selectedBacktest, onBacktestSelect, onBacktes
   return (
     <>
       <List sx={{ bgcolor: 'background.paper' }}>
-        {backtests.map((backtest) => (
+        {ensureArray(backtests).map((backtest) => (
           <ListItem 
             key={backtest.id}
             disablePadding

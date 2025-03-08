@@ -38,6 +38,7 @@ import {
   FilterAlt as FilterIcon
 } from '@mui/icons-material';
 import { executeQuery, executeNonQuery, getLastInsertId } from '../../services/database/db';
+import { ensureArray, safeMap } from '../../utils/arrayUtils';
 
 const ITEM_HEIGHT = 48;
 const ITEM_PADDING_TOP = 8;
@@ -223,7 +224,7 @@ const FilterDialog = ({ open, onClose, type, instruments, entryMethods }) => {
             </Box>
             <Divider sx={{ mb: 2 }} />
             <List>
-              {filters.map((filter) => (
+              {ensureArray(filters).map((filter) => (
                 <ListItem 
                   key={filter.id}
                   disablePadding
@@ -324,7 +325,7 @@ const FilterDialog = ({ open, onClose, type, instruments, entryMethods }) => {
                       input={<OutlinedInput label="Sessions" />}
                       renderValue={(selected) => (
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                          {selected.map((value) => (
+                          {ensureArray(selected).map((value) => (
                             <Chip key={value} label={value} />
                           ))}
                         </Box>
@@ -361,7 +362,7 @@ const FilterDialog = ({ open, onClose, type, instruments, entryMethods }) => {
                       input={<OutlinedInput label="Instruments" />}
                       renderValue={(selected) => (
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                          {selected.map((value) => {
+                          {ensureArray(selected).map((value) => {
                             const instrument = instruments.find(i => i.id === value);
                             return (
                               <Chip key={value} label={instrument ? instrument.name : value} />
@@ -371,7 +372,7 @@ const FilterDialog = ({ open, onClose, type, instruments, entryMethods }) => {
                       )}
                       MenuProps={MenuProps}
                     >
-                      {instruments.map((instrument) => (
+                      {ensureArray(instruments).map((instrument) => (
                         <MenuItem key={instrument.id} value={instrument.id}>
                           <Checkbox checked={selectedInstruments.indexOf(instrument.id) > -1} />
                           <ListItemText primary={instrument.name} />
@@ -399,7 +400,7 @@ const FilterDialog = ({ open, onClose, type, instruments, entryMethods }) => {
                       input={<OutlinedInput label="Entry Methods" />}
                       renderValue={(selected) => (
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                          {selected.map((value) => {
+                          {ensureArray(selected).map((value) => {
                             const method = entryMethods.find(m => m.id === value);
                             return (
                               <Chip key={value} label={method ? method.name : value} />
@@ -409,7 +410,7 @@ const FilterDialog = ({ open, onClose, type, instruments, entryMethods }) => {
                       )}
                       MenuProps={MenuProps}
                     >
-                      {entryMethods.map((method) => (
+                      {ensureArray(entryMethods).map((method) => (
                         <MenuItem key={method.id} value={method.id}>
                           <Checkbox checked={selectedEntryMethods.indexOf(method.id) > -1} />
                           <ListItemText primary={method.name} />
@@ -476,7 +477,7 @@ const FilterDialog = ({ open, onClose, type, instruments, entryMethods }) => {
                       input={<OutlinedInput label="Confluences" />}
                       renderValue={(selected) => (
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                          {selected.map((value) => {
+                          {ensureArray(selected).map((value) => {
                             const confluence = confluences.find(c => c.id === value);
                             return (
                               <Chip key={value} label={confluence ? confluence.name : value} />
@@ -486,7 +487,7 @@ const FilterDialog = ({ open, onClose, type, instruments, entryMethods }) => {
                       )}
                       MenuProps={MenuProps}
                     >
-                      {confluences.map((confluence) => (
+                      {ensureArray(confluences).map((confluence) => (
                         <MenuItem key={confluence.id} value={confluence.id}>
                           <Checkbox checked={selectedConfluences.indexOf(confluence.id) > -1} />
                           <ListItemText primary={confluence.name} />
@@ -514,7 +515,7 @@ const FilterDialog = ({ open, onClose, type, instruments, entryMethods }) => {
                       input={<OutlinedInput label="Statuses" />}
                       renderValue={(selected) => (
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                          {selected.map((value) => (
+                          {ensureArray(selected).map((value) => (
                             <Chip key={value} label={value} />
                           ))}
                         </Box>
@@ -555,7 +556,7 @@ const FilterDialog = ({ open, onClose, type, instruments, entryMethods }) => {
                       input={<OutlinedInput label="Days" />}
                       renderValue={(selected) => (
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                          {selected.map((value) => (
+                          {ensureArray(selected).map((value) => (
                             <Chip key={value} label={value} />
                           ))}
                         </Box>
@@ -590,7 +591,7 @@ const FilterDialog = ({ open, onClose, type, instruments, entryMethods }) => {
                       input={<OutlinedInput label="Directions" />}
                       renderValue={(selected) => (
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                          {selected.map((value) => (
+                          {ensureArray(selected).map((value) => (
                             <Chip key={value} label={value} />
                           ))}
                         </Box>
@@ -627,7 +628,7 @@ const FilterDialog = ({ open, onClose, type, instruments, entryMethods }) => {
                       input={<OutlinedInput label="Confirmation Types" />}
                       renderValue={(selected) => (
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                          {selected.map((value) => (
+                          {ensureArray(selected).map((value) => (
                             <Chip key={value} label={value} />
                           ))}
                         </Box>

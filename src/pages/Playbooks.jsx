@@ -41,6 +41,7 @@ import {
   ViewList as TableViewIcon
 } from '@mui/icons-material';
 import { executeQuery, executeNonQuery, getLastInsertId } from '../services/database/db';
+import { ensureArray, safeMap } from '../utils/arrayUtils';
 
 // Tab panel component
 function TabPanel(props) {
@@ -473,7 +474,7 @@ const Playbooks = () => {
               </Typography>
               
               <List>
-                {instruments.map((instrument) => (
+                {ensureArray(instruments).map((instrument) => (
                   <ListItem key={instrument.id} disablePadding>
                     <ListItemButton
                       selected={selectedInstrumentId === instrument.id}
@@ -510,7 +511,7 @@ const Playbooks = () => {
                 </Typography>
               ) : (
                 <List>
-                  {playbooks.map((playbook) => (
+                  {ensureArray(playbooks).map((playbook) => (
                     <ListItem
                       key={playbook.id}
                       secondaryAction={
@@ -837,7 +838,7 @@ const Playbooks = () => {
                     label="Confirmation Time"
                     onChange={(e) => handleFormChange('confirmation_time', e.target.value)}
                   >
-                    {timeOptions.map((time) => (
+                    {ensureArray(timeOptions).map((time) => (
                       <MenuItem key={time} value={time}>{time}</MenuItem>
                     ))}
                   </Select>

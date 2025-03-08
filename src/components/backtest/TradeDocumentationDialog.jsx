@@ -21,6 +21,7 @@ import {
   ListItemText
 } from '@mui/material';
 import { executeQuery, executeNonQuery } from '../../services/database/db';
+import { ensureArray, safeMap } from '../../utils/arrayUtils';
 
 // Body & Mind states options
 const bodyMindStates = [
@@ -314,7 +315,7 @@ const TradeDocumentationDialog = ({ open, onClose, tradeId, onSave }) => {
                 input={<OutlinedInput label="Confluences" />}
                 renderValue={(selected) => (
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                    {selected.map((value) => {
+                    {ensureArray(selected).map((value) => {
                       const confluence = confluences.find(c => c.id === value);
                       return (
                         <Chip key={value} label={confluence ? confluence.name : value} />
@@ -324,7 +325,7 @@ const TradeDocumentationDialog = ({ open, onClose, tradeId, onSave }) => {
                 )}
                 MenuProps={MenuProps}
               >
-                {confluences.map((confluence) => (
+                {ensureArray(confluences).map((confluence) => (
                   <MenuItem key={confluence.id} value={confluence.id}>
                     <Checkbox checked={selectedConfluences.indexOf(confluence.id) > -1} />
                     <ListItemText primary={confluence.name} />
@@ -347,14 +348,14 @@ const TradeDocumentationDialog = ({ open, onClose, tradeId, onSave }) => {
                 input={<OutlinedInput label="Body & Mind State" />}
                 renderValue={(selected) => (
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                    {selected.map((value) => (
+                    {ensureArray(selected).map((value) => (
                       <Chip key={value} label={value} />
                     ))}
                   </Box>
                 )}
                 MenuProps={MenuProps}
               >
-                {bodyMindStates.map((state) => (
+                {ensureArray(bodyMindStates).map((state) => (
                   <MenuItem key={state} value={state}>
                     <Checkbox checked={bodyMindState.indexOf(state) > -1} />
                     <ListItemText primary={state} />

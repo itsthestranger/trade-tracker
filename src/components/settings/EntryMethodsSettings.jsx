@@ -28,6 +28,7 @@ import {
 } from '@mui/icons-material';
 import { executeQuery, executeNonQuery } from '../../services/database/db';
 import { SketchPicker } from 'react-color';
+import { ensureArray, safeMap } from '../../utils/arrayUtils';
 
 const EntryMethodsSettings = ({ entryMethods, onUpdate }) => {
   // Ensure entryMethods is an array
@@ -206,7 +207,7 @@ const EntryMethodsSettings = ({ entryMethods, onUpdate }) => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {entryMethodsList.map((method) => (
+            {ensureArray(entryMethodsList).map((method) => (
               <TableRow key={method.id}>
                 <TableCell>{method.name}</TableCell>
                 <TableCell>{method.description}</TableCell>

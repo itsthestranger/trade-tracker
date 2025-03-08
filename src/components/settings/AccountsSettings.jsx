@@ -28,6 +28,7 @@ import {
 } from '@mui/icons-material';
 import { executeQuery, executeNonQuery } from '../../services/database/db';
 import { SketchPicker } from 'react-color';
+import { ensureArray, safeMap } from '../../utils/arrayUtils';
 
 const AccountsSettings = ({ accounts, onUpdate }) => {
   const [open, setOpen] = useState(false);
@@ -214,7 +215,7 @@ const AccountsSettings = ({ accounts, onUpdate }) => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {accounts.map((account) => (
+            {ensureArray(accounts).map((account) => (
               <TableRow key={account.id}>
                 <TableCell>{account.name}</TableCell>
                 <TableCell>{account.size.toLocaleString()}</TableCell>

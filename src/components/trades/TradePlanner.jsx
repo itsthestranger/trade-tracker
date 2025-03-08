@@ -29,6 +29,7 @@ import {
 import { executeQuery, executeNonQuery, getLastInsertId } from '../../services/database/db';
 import EntryHeatmap from './EntryHeatmap';
 import PlaybookHeatmap from './PlaybookHeatmap';
+import { ensureArray, safeMap } from '../../utils/arrayUtils';
 
 const TradePlanner = () => {
   const [isLoading, setIsLoading] = useState(true);
@@ -72,6 +73,12 @@ const TradePlanner = () => {
   
   // Time options based on selected session
   const [confirmationTimeOptions, setConfirmationTimeOptions] = useState([]);
+
+  const ensureArray = (value) => {
+    if (!value) return [];
+    return Array.isArray(value) ? value : [value];
+  };
+  
   
   useEffect(() => {
     fetchSettings();
@@ -180,31 +187,34 @@ const TradePlanner = () => {
       
       // Fetch instruments
       const instrumentsResult = executeQuery('SELECT * FROM instruments ORDER BY name');
-      setInstruments(instrumentsResult);
+      // Ensure it's an array
+      setInstruments(ensureArray(instrumentsResult));
       
       // Fetch confluences
       const confluencesResult = executeQuery('SELECT * FROM confluences ORDER BY name');
-      setConfluences(confluencesResult);
+      setConfluences(ensureArray(confluencesResult));
       
       // Fetch accounts
       const accountsResult = executeQuery('SELECT * FROM accounts ORDER BY name');
-      setAccounts(accountsResult);
+      setAccounts(ensureArray(accountsResult));
       
       // Fetch minimum required confluences
       const minConfluencesResult = executeQuery("SELECT value FROM app_settings WHERE key = 'minimumConfluencesRequired'");
-      if (minConfluencesResult.length > 0) {
+      if (ensureArray(minConfluencesResult).length > 0) {
         setMinRequiredConfluences(parseInt(minConfluencesResult[0].value) || 3);
       }
       
       // Set default selections if available
-      if (instrumentsResult.length > 0) {
-        setSelectedInstrument(instrumentsResult[0].id);
+      const safeInstruments = ensureArray(instrumentsResult);
+      if (safeInstruments.length > 0) {
+        setSelectedInstrument(safeInstruments[0].id);
       }
       
-      if (accountsResult.length > 0) {
-        setSelectedAccount(accountsResult[0].id);
-        setAccountSize(accountsResult[0].size);
-        setRiskPercentage(accountsResult[0].percentEqualingOneR);
+      const safeAccounts = ensureArray(accountsResult);
+      if (safeAccounts.length > 0) {
+        setSelectedAccount(safeAccounts[0].id);
+        setAccountSize(safeAccounts[0].size);
+        setRiskPercentage(safeAccounts[0].percentEqualingOneR);
       }
       
       // Set default day to current weekday (if Mon-Fri)
@@ -220,6 +230,10 @@ const TradePlanner = () => {
       setIsLoading(false);
     } catch (err) {
       console.error('Error fetching settings:', err);
+      // Initialize with empty arrays to prevent mapping errors
+      setInstruments([]);
+      setConfluences([]);
+      setAccounts([]);
       setError(err);
       setIsLoading(false);
     }
@@ -254,11 +268,14 @@ const TradePlanner = () => {
         selectedConfirmationTime
       ]);
       
-      setEntryTimeData(entryTimeResult);
+      // Ensure we're working with an array
+      setEntryTimeData(Array.isArray(entryTimeResult) ? entryTimeResult : []);
     } catch (error) {
       console.error('Error fetching entry times:', error);
+      setEntryTimeData([]);
     }
   };
+  
   
   const handleConfluenceChange = (event, newValue) => {
     setSelectedConfluences(newValue);
@@ -295,7 +312,7 @@ const TradePlanner = () => {
       const timeStr = selectedConfirmationTime || today.toTimeString().substring(0, 5);
       
       // Create trade record
-      executeNonQuery(`
+      const success = executeNonQuery(`
         INSERT INTO trades (
           date, 
           day, 
@@ -337,25 +354,55 @@ const TradePlanner = () => {
         isExecuted ? 0 : 1 // Is planned (based on save type)
       ]);
       
+      if (!success) {
+        console.error("Failed to insert trade record");
+        alert("Failed to save trade. Please check console for errors.");
+        return;
+      }
+      
       // Get the new trade ID
-      const newTradeId = getLastInsertId();
+      const newTradeIdResult = executeQuery("SELECT last_insert_rowid() as id");
+      let newTradeId;
+      
+      if (Array.isArray(newTradeIdResult) && newTradeIdResult.length > 0) {
+        newTradeId = newTradeIdResult[0].id;
+      } else {
+        console.error("Failed to get last insert ID");
+        alert("Trade was saved but confluences couldn't be linked.");
+        return;
+      }
       
       // Save confluences
       if (selectedConfluences.length > 0) {
-        selectedConfluences.forEach(confluenceId => {
-          executeNonQuery(`
+        let allConflSaved = true;
+        for (const confluenceId of selectedConfluences) {
+          const conflSaved = executeNonQuery(`
             INSERT INTO trade_confluences (trade_id, confluence_id)
             VALUES (?, ?)
           `, [newTradeId, confluenceId]);
-        });
+          
+          if (!conflSaved) {
+            allConflSaved = false;
+            console.error(`Failed to save confluence ${confluenceId} for trade ${newTradeId}`);
+          }
+        }
+        
+        if (!allConflSaved) {
+          alert("Some confluences couldn't be saved with the trade.");
+        }
       }
       
       // Save body & mind state
       if (bodyMindStates.length > 0) {
-        executeNonQuery(`
+        const journalSaved = executeNonQuery(`
           INSERT INTO trade_journal (trade_id, body_mind_state)
           VALUES (?, ?)
         `, [newTradeId, bodyMindStates.join(',')]);
+        
+        if (!journalSaved) {
+          console.error(`Failed to save body & mind state for trade ${newTradeId}`);
+          alert("Trade was saved but body & mind state couldn't be saved.");
+        }
       }
       
       // Clear form
@@ -368,7 +415,7 @@ const TradePlanner = () => {
       
     } catch (error) {
       console.error('Error saving trade:', error);
-      alert('Failed to save trade. Please try again.');
+      alert('Failed to save trade: ' + (error.message || 'Unknown error'));
     }
   };
   
@@ -430,21 +477,25 @@ const TradePlanner = () => {
             <CardContent>
               <Grid container spacing={2}>
                 <Grid item xs={12} sm={6}>
-                  <FormControl fullWidth>
-                    <InputLabel id="instrument-label">Instrument</InputLabel>
-                    <Select
-                      labelId="instrument-label"
-                      value={selectedInstrument}
-                      label="Instrument"
-                      onChange={(e) => setSelectedInstrument(e.target.value)}
-                    >
-                      {instruments.map((instrument) => (
+                <FormControl fullWidth>
+                  <InputLabel id="instrument-label">Instrument</InputLabel>
+                  <Select
+                    labelId="instrument-label"
+                    value={selectedInstrument}
+                    label="Instrument"
+                    onChange={(e) => setSelectedInstrument(e.target.value)}
+                  >
+                    {Array.isArray(instruments) ? (
+                      ensureArray(instruments).map((instrument) => (
                         <MenuItem key={instrument.id} value={instrument.id}>
                           {instrument.name}
                         </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
+                      ))
+                    ) : (
+                      <MenuItem disabled>No instruments available</MenuItem>
+                    )}
+                  </Select>
+                </FormControl>
                 </Grid>
                 
                 <Grid item xs={12} sm={6}>
@@ -550,10 +601,10 @@ const TradePlanner = () => {
               <Autocomplete
                 multiple
                 id="confluences-selector"
-                options={confluences}
+                options={Array.isArray(confluences) ? confluences : []}
                 getOptionLabel={(option) => option.name}
                 isOptionEqualToValue={(option, value) => option.id === value.id}
-                value={confluences.filter(c => selectedConfluences.includes(c.id))}
+                value={Array.isArray(confluences) ? confluences.filter(c => selectedConfluences.includes(c.id)) : []}
                 onChange={(event, newValue) => {
                   setSelectedConfluences(newValue.map(item => item.id));
                 }}
@@ -619,14 +670,17 @@ const TradePlanner = () => {
           <Card sx={{ mb: 3 }}>
             <CardHeader title="Entry Timings" />
             <CardContent>
-              {entryTimeData.length > 0 ? (
-                <EntryHeatmap entryTimeData={entryTimeData} session={selectedSession} />
-              ) : (
-                <Typography variant="body2" color="text.secondary" align="center">
-                  No entry time data available for the selected criteria.
-                  Complete all selections above to see backtest data.
-                </Typography>
-              )}
+            {entryTimeData.length > 0 ? (
+              <EntryHeatmap 
+                entryTimeData={Array.isArray(entryTimeData) ? entryTimeData : []} 
+                session={selectedSession} 
+              />
+            ) : (
+              <Typography variant="body2" color="text.secondary" align="center">
+                No entry time data available for the selected criteria.
+                Complete all selections above to see backtest data.
+              </Typography>
+            )}
             </CardContent>
           </Card>
           
@@ -634,18 +688,18 @@ const TradePlanner = () => {
           <Card sx={{ mb: 3 }}>
             <CardHeader title="Playbook Heatmap" />
             <CardContent>
-              {selectedInstrument && selectedDay && selectedConfirmationTime ? (
-                <PlaybookHeatmap 
-                  instrumentId={selectedInstrument}
-                  day={selectedDay}
-                  direction={selectedDirection}
-                  confirmationTime={selectedConfirmationTime}
-                />
-              ) : (
-                <Typography variant="body2" color="text.secondary" align="center">
-                  Complete all selections to see playbook data.
-                </Typography>
-              )}
+            {selectedInstrument && selectedDay && selectedConfirmationTime ? (
+              <PlaybookHeatmap 
+                instrumentId={selectedInstrument}
+                day={selectedDay}
+                direction={selectedDirection}
+                confirmationTime={selectedConfirmationTime}
+              />
+            ) : (
+              <Typography variant="body2" color="text.secondary" align="center">
+                Complete all selections to see playbook data.
+              </Typography>
+            )}
             </CardContent>
           </Card>
           
@@ -655,21 +709,25 @@ const TradePlanner = () => {
             <CardContent>
               <Grid container spacing={2}>
                 <Grid item xs={12} sm={6}>
-                  <FormControl fullWidth>
-                    <InputLabel id="account-label">Account</InputLabel>
-                    <Select
-                      labelId="account-label"
-                      value={selectedAccount}
-                      label="Account"
-                      onChange={(e) => setSelectedAccount(e.target.value)}
-                    >
-                      {accounts.map((account) => (
+                <FormControl fullWidth>
+                  <InputLabel id="account-label">Account</InputLabel>
+                  <Select
+                    labelId="account-label"
+                    value={selectedAccount}
+                    label="Account"
+                    onChange={(e) => setSelectedAccount(e.target.value)}
+                  >
+                    {Array.isArray(accounts) ? (
+                      ensureArray(accounts).map((account) => (
                         <MenuItem key={account.id} value={account.id}>
                           {account.name}
                         </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
+                      ))
+                    ) : (
+                      <MenuItem disabled>No accounts available</MenuItem>
+                    )}
+                  </Select>
+                </FormControl>
                 </Grid>
                 
                 <Grid item xs={12} sm={6}>

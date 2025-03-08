@@ -18,6 +18,7 @@ import {
   MoreHoriz as BreakEvenIcon
 } from '@mui/icons-material';
 import { executeQuery } from '../../services/database/db';
+import { ensureArray } from '../../utils/arrayUtils';
 
 const TradeDocumentationView = ({ isBacktest = true, backtestId = null }) => {
   const [isLoading, setIsLoading] = useState(true);
@@ -42,7 +43,7 @@ const TradeDocumentationView = ({ isBacktest = true, backtestId = null }) => {
       }
       
       // Query to get trades with journal entries
-      const journalResult = executeQuery(`
+      const journalResult = await executeQuery(`
         SELECT 
           t.id,
           t.date,
@@ -65,19 +66,31 @@ const TradeDocumentationView = ({ isBacktest = true, backtestId = null }) => {
         ORDER BY t.date DESC, t.confirmation_time DESC
       `, params);
       
+      // Ensure journalResult is an array
+      const journalArray = ensureArray(journalResult);
+      
+      if (journalArray.length === 0) {
+        setTradeJournals([]);
+        setIsLoading(false);
+        return;
+      }
+      
       // Get confluences for each trade
       const journalEntriesWithConfluences = await Promise.all(
-        journalResult.map(async (journal) => {
-          const confluenceResult = executeQuery(`
+        journalArray.map(async (journal) => {
+          const confluenceResult = await executeQuery(`
             SELECT c.name
             FROM trade_confluences tc
             JOIN confluences c ON tc.confluence_id = c.id
             WHERE tc.trade_id = ?
           `, [journal.id]);
           
+          // Ensure confluenceResult is an array
+          const confluenceArray = ensureArray(confluenceResult);
+          
           return {
             ...journal,
-            confluences: confluenceResult.map(c => c.name)
+            confluences: confluenceArray.map(c => c.name)
           };
         })
       );
@@ -103,7 +116,7 @@ const TradeDocumentationView = ({ isBacktest = true, backtestId = null }) => {
     return (
       <Box p={3}>
         <Typography color="error" variant="h6">
-          Error: {error.message}
+          Error: {error.message || "An error occurred loading trade documentation"}
         </Typography>
       </Box>
     );
@@ -131,7 +144,7 @@ const TradeDocumentationView = ({ isBacktest = true, backtestId = null }) => {
       </Typography>
       
       <Stack spacing={3}>
-        {tradeJournals.map((journal) => (
+        {ensureArray(tradeJournals).map((journal) => (
           <Paper 
             key={journal.id} 
             elevation={2}
@@ -186,7 +199,7 @@ const TradeDocumentationView = ({ isBacktest = true, backtestId = null }) => {
                     Confluences:
                   </Typography>
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                    {journal.confluences.map((confluence, idx) => (
+                    {ensureArray(journal.confluences).map((confluence, idx) => (
                       <Chip key={idx} label={confluence} size="small" />
                     ))}
                   </Box>
@@ -200,7 +213,7 @@ const TradeDocumentationView = ({ isBacktest = true, backtestId = null }) => {
                     Body & Mind State:
                   </Typography>
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                    {journal.body_mind_state.split(',').map((state, idx) => (
+                    {ensureArray(journal.body_mind_state.split(',')).map((state, idx) => (
                       <Chip key={idx} label={state} size="small" variant="outlined" />
                     ))}
                   </Box>

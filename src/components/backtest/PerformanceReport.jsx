@@ -20,6 +20,7 @@ import {
 } from '@mui/material';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 import { executeQuery } from '../../services/database/db';
+import { ensureArray } from '../../utils/arrayUtils';
 
 // Tab panel component
 function TabPanel(props) {
@@ -97,7 +98,7 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
       }
       
       // Overview metrics
-      const overviewResult = executeQuery(`
+      const overviewResult = await executeQuery(`
         SELECT 
           COUNT(*) as totalTrades,
           ROUND(AVG(CASE WHEN status = 'Winner' THEN 100 ELSE 0 END), 1) as winRate,
@@ -111,7 +112,7 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
       `, params);
       
       // Average scores
-      const scoresResult = executeQuery(`
+      const scoresResult = await executeQuery(`
         SELECT 
           ROUND(AVG(preparation), 1) as preparation,
           ROUND(AVG(entry_score), 1) as entry,
@@ -125,7 +126,7 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
       `, params);
       
       // Results by session
-      const sessionResult = executeQuery(`
+      const sessionResult = await executeQuery(`
         SELECT 
           session,
           COUNT(*) as trades,
@@ -141,7 +142,7 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
       `, params);
       
       // Results by instrument
-      const instrumentResult = executeQuery(`
+      const instrumentResult = await executeQuery(`
         SELECT 
           i.name as instrument,
           COUNT(*) as trades,
@@ -158,7 +159,7 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
       `, params);
       
       // Results by confirmation type
-      const confirmationResult = executeQuery(`
+      const confirmationResult = await executeQuery(`
         SELECT 
           confirmation_type as confirmationType,
           COUNT(*) as trades,
@@ -174,7 +175,7 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
       `, params);
       
       // Results by entry method
-      const entryMethodResult = executeQuery(`
+      const entryMethodResult = await executeQuery(`
         SELECT 
           e.name as entryMethod,
           COUNT(*) as trades,
@@ -191,7 +192,7 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
       `, params);
       
       // Results by day
-      const dayResult = executeQuery(`
+      const dayResult = await executeQuery(`
         SELECT 
           day,
           COUNT(*) as trades,
@@ -214,7 +215,7 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
       `, params);
       
       // Results by direction
-      const directionResult = executeQuery(`
+      const directionResult = await executeQuery(`
         SELECT 
           direction,
           COUNT(*) as trades,
@@ -230,7 +231,7 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
       `, params);
       
       // Results by month
-      const monthResult = executeQuery(`
+      const monthResult = await executeQuery(`
         SELECT 
           strftime('%Y-%m', date) as month,
           COUNT(*) as trades,
@@ -246,11 +247,14 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
       `, params);
       
       // Calculate consecutive winners/expenses
-      const tradeSequenceResult = executeQuery(`
+      const tradeSequenceResult = await executeQuery(`
         SELECT status FROM trades t
         ${conditions}
         ORDER BY date, confirmation_time
       `, params);
+      
+      // Ensure tradeSequenceResult is an array
+      const tradeSequenceArray = ensureArray(tradeSequenceResult);
       
       let maxConsecutiveWinners = 0;
       let maxConsecutiveExpenses = 0;
@@ -259,7 +263,8 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
       let currentExpenses = 0;
       let currentBreakEven = 0;
       
-      tradeSequenceResult.forEach(trade => {
+      // Use safe iteration
+      tradeSequenceArray.forEach(trade => {
         if (trade.status === 'Winner') {
           currentWinners++;
           currentExpenses = 0;
@@ -278,22 +283,42 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
         }
       });
       
-      // Set the data
+      // Get safe values from the first result item (or use defaults if empty)
+      const overviewData = ensureArray(overviewResult)[0] || {};
+      const scoresData = ensureArray(scoresResult)[0] || {};
+      
+      // Set the data with safe default values
       setOverviewMetrics({
-        ...overviewResult[0],
+        totalTrades: overviewData.totalTrades || 0,
+        winRate: overviewData.winRate || 0,
+        winners: overviewData.winners || 0,
+        expenses: overviewData.expenses || 0,
+        breakEven: overviewData.breakEven || 0,
+        totalR: overviewData.totalR || 0,
+        avgR: overviewData.avgR || 0,
         consecutiveWinners: maxConsecutiveWinners,
         consecutiveExpenses: maxConsecutiveExpenses,
         consecutiveBreakEven: maxConsecutiveBreakEven
       });
       
-      setAverageScores(scoresResult[0]);
-      setResultsBySession(sessionResult);
-      setResultsByInstrument(instrumentResult);
-      setResultsByConfirmationType(confirmationResult);
-      setResultsByEntryMethod(entryMethodResult);
-      setResultsByDay(dayResult);
-      setResultsByDirection(directionResult);
-      setResultsByMonth(monthResult);
+      setAverageScores({
+        preparation: scoresData.preparation || 0,
+        entry: scoresData.entry || 0,
+        stopLoss: scoresData.stopLoss || 0,
+        target: scoresData.target || 0,
+        management: scoresData.management || 0,
+        rules: scoresData.rules || 0,
+        overall: scoresData.overall || 0
+      });
+      
+      // Ensure all result sets are arrays
+      setResultsBySession(ensureArray(sessionResult));
+      setResultsByInstrument(ensureArray(instrumentResult));
+      setResultsByConfirmationType(ensureArray(confirmationResult));
+      setResultsByEntryMethod(ensureArray(entryMethodResult));
+      setResultsByDay(ensureArray(dayResult));
+      setResultsByDirection(ensureArray(directionResult));
+      setResultsByMonth(ensureArray(monthResult));
       
       setIsLoading(false);
     } catch (err) {
@@ -319,7 +344,7 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
     return (
       <Box p={3}>
         <Typography color="error" variant="h6">
-          Error: {error.message}
+          Error: {error.message || "An error occurred loading performance data"}
         </Typography>
       </Box>
     );
@@ -479,7 +504,7 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
                             dataKey="value"
                             label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                           >
-                            {statusDistributionData.map((entry, index) => (
+                            {ensureArray(statusDistributionData).map((entry, index) => (
                               <Cell key={`cell-${index}`} fill={entry.color} />
                             ))}
                           </Pie>
@@ -582,10 +607,10 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
                         Best Instrument
                       </Typography>
                       <Typography variant="h6">
-                        {resultsByInstrument.sort((a, b) => b.result - a.result)[0]?.instrument || 'N/A'}
+                        {ensureArray(resultsByInstrument).sort((a, b) => b.result - a.result)[0]?.instrument || 'N/A'}
                         {' '}
                         <Typography component="span" color="success.main">
-                          ({resultsByInstrument.sort((a, b) => b.result - a.result)[0]?.result || 0}R)
+                          ({ensureArray(resultsByInstrument).sort((a, b) => b.result - a.result)[0]?.result || 0}R)
                         </Typography>
                       </Typography>
                     </Grid>
@@ -597,10 +622,10 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
                         Best Entry Method
                       </Typography>
                       <Typography variant="h6">
-                        {resultsByEntryMethod.sort((a, b) => b.result - a.result)[0]?.entryMethod || 'N/A'}
+                        {ensureArray(resultsByEntryMethod).sort((a, b) => b.result - a.result)[0]?.entryMethod || 'N/A'}
                         {' '}
                         <Typography component="span" color="success.main">
-                          ({resultsByEntryMethod.sort((a, b) => b.result - a.result)[0]?.result || 0}R)
+                          ({ensureArray(resultsByEntryMethod).sort((a, b) => b.result - a.result)[0]?.result || 0}R)
                         </Typography>
                       </Typography>
                     </Grid>
@@ -612,10 +637,10 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
                         Best Day
                       </Typography>
                       <Typography variant="h6">
-                        {resultsByDay.sort((a, b) => b.result - a.result)[0]?.day || 'N/A'}
+                        {ensureArray(resultsByDay).sort((a, b) => b.result - a.result)[0]?.day || 'N/A'}
                         {' '}
                         <Typography component="span" color="success.main">
-                          ({resultsByDay.sort((a, b) => b.result - a.result)[0]?.result || 0}R)
+                          ({ensureArray(resultsByDay).sort((a, b) => b.result - a.result)[0]?.result || 0}R)
                         </Typography>
                       </Typography>
                     </Grid>
@@ -627,10 +652,10 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
                         Best Session
                       </Typography>
                       <Typography variant="h6">
-                        {resultsBySession.sort((a, b) => b.result - a.result)[0]?.session || 'N/A'}
+                        {ensureArray(resultsBySession).sort((a, b) => b.result - a.result)[0]?.session || 'N/A'}
                         {' '}
                         <Typography component="span" color="success.main">
-                          ({resultsBySession.sort((a, b) => b.result - a.result)[0]?.result || 0}R)
+                          ({ensureArray(resultsBySession).sort((a, b) => b.result - a.result)[0]?.result || 0}R)
                         </Typography>
                       </Typography>
                     </Grid>
@@ -642,10 +667,10 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
                         Best Confirmation Type
                       </Typography>
                       <Typography variant="h6">
-                        {resultsByConfirmationType.sort((a, b) => b.result - a.result)[0]?.confirmationType || 'N/A'}
+                        {ensureArray(resultsByConfirmationType).sort((a, b) => b.result - a.result)[0]?.confirmationType || 'N/A'}
                         {' '}
                         <Typography component="span" color="success.main">
-                          ({resultsByConfirmationType.sort((a, b) => b.result - a.result)[0]?.result || 0}R)
+                          ({ensureArray(resultsByConfirmationType).sort((a, b) => b.result - a.result)[0]?.result || 0}R)
                         </Typography>
                       </Typography>
                     </Grid>
@@ -657,10 +682,10 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
                         Best Direction
                       </Typography>
                       <Typography variant="h6">
-                        {resultsByDirection.sort((a, b) => b.result - a.result)[0]?.direction || 'N/A'}
+                        {ensureArray(resultsByDirection).sort((a, b) => b.result - a.result)[0]?.direction || 'N/A'}
                         {' '}
                         <Typography component="span" color="success.main">
-                          ({resultsByDirection.sort((a, b) => b.result - a.result)[0]?.result || 0}R)
+                          ({ensureArray(resultsByDirection).sort((a, b) => b.result - a.result)[0]?.result || 0}R)
                         </Typography>
                       </Typography>
                     </Grid>
@@ -686,13 +711,13 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
                   variant="scrollable"
                   scrollButtons="auto"
                 >
-                  {resultTables.map((table, index) => (
+                  {ensureArray(resultTables).map((table, index) => (
                     <Tab key={index} label={table.label} />
                   ))}
                 </Tabs>
               </Box>
               
-              {resultTables.map((table, index) => (
+              {ensureArray(resultTables).map((table, index) => (
                 <TabPanel key={index} value={tabValue} index={index}>
                   <TableContainer component={Paper}>
                     <Table size="small">
@@ -708,7 +733,7 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {table.data.map((row, rowIndex) => (
+                        {ensureArray(table.data).map((row, rowIndex) => (
                           <TableRow key={rowIndex}>
                             <TableCell component="th" scope="row">
                               {Object.values(row)[0]}
@@ -730,7 +755,7 @@ const PerformanceReport = ({ isBacktest = true, backtestId = null }) => {
                             </TableCell>
                           </TableRow>
                         ))}
-                        {table.data.length === 0 && (
+                        {ensureArray(table.data).length === 0 && (
                           <TableRow>
                             <TableCell colSpan={7} align="center">
                               No data available

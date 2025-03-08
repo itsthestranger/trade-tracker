@@ -32,6 +32,7 @@ import { executeQuery, executeNonQuery } from '../../services/database/db';
 import { SketchPicker } from 'react-color';
 import DatabaseDebugger from './DatabaseDebugger'; // Import the debugger component
 import localforage from 'localforage'; // Import localforage for direct access
+import { ensureArray, safeMap } from '../../utils/arrayUtils';
 
 const InstrumentsSettings = ({ instruments, onUpdate }) => {
   // Ensure instruments is an array
@@ -253,7 +254,7 @@ const InstrumentsSettings = ({ instruments, onUpdate }) => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {instrumentsList.map((instrument) => (
+            {ensureArray(instrumentsList).map((instrument) => (
               <TableRow key={instrument.id}>
                 <TableCell>{instrument.id}</TableCell>
                 <TableCell>{instrument.name}</TableCell>
