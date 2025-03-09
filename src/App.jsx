@@ -12,7 +12,8 @@ import {
   History as BacktestIcon,
   Book as PlaybooksIcon,
   Settings as SettingsIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  Save as SaveIcon
 } from '@mui/icons-material';
 
 // Pages
@@ -23,7 +24,7 @@ import Playbooks from './pages/Playbooks';
 import Settings from './pages/Settings';
 
 // Database
-import { initDatabase } from './services/database/db';
+import { initDatabase, exportDatabase } from './services/database/db';
 
 // Create theme
 const theme = createTheme({
@@ -71,6 +72,7 @@ const App = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [initAttempt, setInitAttempt] = useState(0);
+  const [showSaveButton, setShowSaveButton] = useState(false);
 
   useEffect(() => {
     const handleResize = () => {
@@ -98,6 +100,11 @@ const App = () => {
         await initDatabase();
         console.log('Database initialized successfully');
         
+        // Check if File System Access API is available
+        if ('showSaveFilePicker' in window) {
+          setShowSaveButton(true);
+        }
+        
         setIsLoading(false);
       } catch (err) {
         console.error('Failed to initialize database:', err);
@@ -120,24 +127,19 @@ const App = () => {
     }
   };
 
-  const handleRetry = () => {
-    // Reset IndexedDB and retry initialization
-    if (window.indexedDB) {
-      try {
-        window.indexedDB.deleteDatabase('trade-tracker-db');
-        console.log("IndexedDB database deleted");
-      } catch (err) {
-        console.error("Error deleting IndexedDB database:", err);
-      }
-    }
-    
-    // Also clear localStorage as fallback
+  const handleQuickSave = async () => {
     try {
-      localStorage.removeItem('tradeTrackerDB');
-      console.log("localStorage database entry removed");
-    } catch (err) {
-      console.error("Error removing localStorage item:", err);
+      await exportDatabase();
+      // You could add a small notification here
+    } catch (error) {
+      console.error('Error during quick save:', error);
     }
+  };
+
+  const handleRetry = () => {
+    // Reset database and retry initialization
+    localStorage.removeItem('trade-tracker-db');
+    console.log("Database entries removed");
     
     // Trigger re-initialization by updating the initAttempt counter
     setInitAttempt(prev => prev + 1);
@@ -229,9 +231,20 @@ const App = () => {
               >
                 <MenuIcon />
               </IconButton>
-              <Typography variant="h6" noWrap component="div">
+              <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
                 Trade Tracker
               </Typography>
+              
+              {/* Quick Save Button */}
+              {showSaveButton && (
+                <Button 
+                  color="inherit" 
+                  startIcon={<SaveIcon />}
+                  onClick={handleQuickSave}
+                >
+                  Save
+                </Button>
+              )}
             </Toolbar>
           </AppBar>
           

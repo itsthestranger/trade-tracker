@@ -1,6 +1,7 @@
 // src/services/database/schema.js
 
-export const schema = `
+// The SQL schema for the database
+const schema = `
 -- Settings tables
 CREATE TABLE IF NOT EXISTS instruments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -131,3 +132,5 @@ CREATE TABLE IF NOT EXISTS playbooks (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 `;
+
+export { schema };
