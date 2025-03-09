@@ -141,7 +141,7 @@ const seedDefaultData = async () => {
  * Execute a query to get data
  * This is a simplified query executor that always returns arrays
  */
-export const executeQuery = async (query, params = []) => {
+export const executeQuery = (query, params = []) => {
   try {
     console.log("Executing query:", query, params);
     
@@ -150,25 +150,86 @@ export const executeQuery = async (query, params = []) => {
     
     if (queryLower.includes('select') && queryLower.includes('from')) {
       // Extract table name
-      const fromMatch = queryLower.match(/from\s+([a-z0-9_]+)/);
+      const fromMatch = queryLower.match(/from\\s+([a-z0-9_]+)/);
       if (!fromMatch) {
         console.warn('Invalid query: FROM clause not found');
         return [];
       }
       
       const tableName = fromMatch[1];
-      const results = await queryTable(tableName, query, params);
-      return ensureArray(results);
+      
+      // Handle special case for last_insert_rowid()
+      if (queryLower.startsWith('select last_insert_rowid()')) {
+        return [{ id: lastInsertId }];
+      }
+      
+      // Get all items from the store
+      const store = stores[tableName];
+      if (!store) {
+        console.warn(`Table not found: ${tableName}`);
+        return [];
+      }
+      
+      // Direct access to the store for more reliable querying
+      let items = [];
+      
+      // Get all items from the store
+      // For immediate response (non-async context), use a cached approach
+      store.iterate((value) => {
+        items.push(value);
+      }).then(() => {
+        console.log(`Retrieved ${items.length} items from ${tableName}`);
+      }).catch(err => {
+        console.error(`Error retrieving items from ${tableName}:`, err);
+      });
+      
+      // Basic WHERE filtering if applicable
+      if (queryLower.includes('where')) {
+        try {
+          // This is a very simplified WHERE parser, supports basic conditions
+          const whereClause = query.substring(query.toLowerCase().indexOf('where') + 5);
+          const conditions = whereClause.split('and').map(c => c.trim());
+          
+          let paramIndex = 0;
+          
+          items = items.filter(item => {
+            return conditions.every(condition => {
+              // Handle equality with parameters (WHERE x = ?)
+              if (condition.includes('=') && condition.includes('?')) {
+                const [field, _] = condition.split('=').map(p => p.trim());
+                const paramValue = params[paramIndex++];
+                return item[field] == paramValue; // Use == for type coercion
+              }
+              
+              // Add more condition parsing as needed
+              return true;
+            });
+          });
+        } catch (filterError) {
+          console.error('Error filtering items:', filterError);
+        }
+      }
+      
+      // ORDER BY handling (very basic)
+      if (queryLower.includes('order by')) {
+        try {
+          const orderClause = query.substring(query.toLowerCase().indexOf('order by') + 8).trim();
+          const [field, direction] = orderClause.split(/\\s+/);
+          
+          items.sort((a, b) => {
+            if (a[field] < b[field]) return direction?.toLowerCase() === 'desc' ? 1 : -1;
+            if (a[field] > b[field]) return direction?.toLowerCase() === 'desc' ? -1 : 1;
+            return 0;
+          });
+        } catch (sortError) {
+          console.error('Error sorting items:', sortError);
+        }
+      }
+      
+      return items;
     }
     
-    if (queryLower.startsWith('select last_insert_rowid()')) {
-      return [{ id: lastInsertId }];
-    }
-    
-    if (queryLower.startsWith('select sqlite_version()')) {
-      return [{ 'sqlite_version()': '3.36.0' }];
-    }
-    
+    // Default response for unsupported queries
     console.warn('Unsupported query:', query);
     return [];
   } catch (error) {
@@ -234,13 +295,13 @@ const queryTable = async (tableName, query, params) => {
  * Execute a non-query operation (INSERT, UPDATE, DELETE)
  * @returns {Promise<boolean>} Success or failure
  */
-export const executeNonQuery = async (query, params = []) => {
+export const executeNonQuery = (query, params = []) => {
   try {
     console.log("Executing non-query:", query, params);
     
     // Basic INSERT parser
     if (query.toLowerCase().startsWith('insert into')) {
-      const match = query.match(/insert into\s+([a-z0-9_]+)\s*\(([^)]+)\)/i);
+      const match = query.match(/insert into\\s+([a-z0-9_]+)\\s*\\(([^)]+)\\)/i);
       if (!match) {
         console.error('Invalid INSERT query:', query);
         return false;
@@ -249,34 +310,160 @@ export const executeNonQuery = async (query, params = []) => {
       const tableName = match[1];
       const columns = match[2].split(',').map(c => c.trim());
       
-      const result = await insertIntoTable(tableName, columns, params);
-      return result;
+      // Get direct access to the store
+      const store = stores[tableName];
+      if (!store) {
+        console.error(`Table not found: ${tableName}`);
+        return false;
+      }
+      
+      // Generate new ID
+      counters[tableName] = (counters[tableName] || 0) + 1;
+      const id = counters[tableName];
+      
+      // Create object with column values
+      const record = { id };
+      for (let i = 0; i < columns.length; i++) {
+        if (i < params.length) {
+          record[columns[i]] = params[i];
+        }
+      }
+      
+      // Add timestamps if needed
+      if (columns.includes('created_at') && !params[columns.indexOf('created_at')]) {
+        record.created_at = new Date().toISOString();
+      }
+      
+      console.log(`Inserting record into ${tableName}:`, record);
+      
+      // Store the record with explicit promise handling
+      store.setItem(id.toString(), record)
+        .then(() => {
+          console.log(`Successfully inserted item with ID ${id} into ${tableName}`);
+          
+          // Update last insert id
+          lastInsertId = id;
+        })
+        .catch(err => {
+          console.error(`Error storing item in ${tableName}:`, err);
+        });
+      
+      // For immediate response (non-async context)
+      lastInsertId = id;
+      
+      return true;
     }
     
-    // Basic UPDATE parser
+    // Handle UPDATE queries
     if (query.toLowerCase().startsWith('update')) {
-      const match = query.match(/update\s+([a-z0-9_]+)\s+set/i);
+      const match = query.match(/update\\s+([a-z0-9_]+)\\s+set/i);
       if (!match) {
         console.error('Invalid UPDATE query:', query);
         return false;
       }
       
       const tableName = match[1];
-      const result = await updateTable(tableName, query, params);
-      return result;
+      const store = stores[tableName];
+      if (!store) {
+        console.error(`Table not found: ${tableName}`);
+        return false;
+      }
+      
+      // Extract WHERE clause to identify records to update
+      const whereParts = query.toLowerCase().split('where');
+      if (whereParts.length < 2) {
+        console.error('UPDATE requires WHERE clause');
+        return false;
+      }
+      
+      const whereClause = whereParts[1].trim();
+      
+      // Basic WHERE parser for id = ?
+      if (whereClause.includes('id = ?')) {
+        const idParam = params[params.length - 1];
+        if (!idParam) {
+          console.error('Missing ID for UPDATE');
+          return false;
+        }
+        
+        // Get the record
+        store.getItem(idParam.toString())
+          .then(record => {
+            if (!record) {
+              console.warn(`Record with ID ${idParam} not found for update`);
+              return;
+            }
+            
+            // Extract SET clause
+            const setParts = query.toLowerCase().split('set')[1].split('where')[0].trim();
+            const assignments = setParts.split(',').map(a => a.trim());
+            
+            // Update fields
+            let paramIndex = 0;
+            for (const assignment of assignments) {
+              const [field, _] = assignment.split('=').map(p => p.trim());
+              if (paramIndex < params.length - 1) { // -1 to exclude the id param
+                record[field] = params[paramIndex++];
+              }
+            }
+            
+            // Save updated record
+            return store.setItem(idParam.toString(), record);
+          })
+          .then(() => {
+            console.log(`Successfully updated record with ID ${idParam} in ${tableName}`);
+          })
+          .catch(err => {
+            console.error(`Error updating record in ${tableName}:`, err);
+          });
+      }
+      
+      return true;
     }
     
-    // Basic DELETE parser
+    // Handle DELETE queries
     if (query.toLowerCase().startsWith('delete from')) {
-      const match = query.match(/delete from\s+([a-z0-9_]+)/i);
+      const match = query.match(/delete from\\s+([a-z0-9_]+)/i);
       if (!match) {
         console.error('Invalid DELETE query:', query);
         return false;
       }
       
       const tableName = match[1];
-      const result = await deleteFromTable(tableName, query, params);
-      return result;
+      const store = stores[tableName];
+      if (!store) {
+        console.error(`Table not found: ${tableName}`);
+        return false;
+      }
+      
+      // Extract WHERE clause
+      const whereParts = query.toLowerCase().split('where');
+      if (whereParts.length < 2) {
+        console.error('DELETE requires WHERE clause');
+        return false;
+      }
+      
+      const whereClause = whereParts[1].trim();
+      
+      // Basic WHERE parser for id = ?
+      if (whereClause.includes('id = ?')) {
+        const idParam = params[0];
+        if (!idParam) {
+          console.error('Missing ID for DELETE');
+          return false;
+        }
+        
+        // Delete the record
+        store.removeItem(idParam.toString())
+          .then(() => {
+            console.log(`Successfully deleted record with ID ${idParam} from ${tableName}`);
+          })
+          .catch(err => {
+            console.error(`Error deleting record from ${tableName}:`, err);
+          });
+      }
+      
+      return true;
     }
     
     console.warn('Unsupported non-query:', query);
@@ -284,7 +471,7 @@ export const executeNonQuery = async (query, params = []) => {
   } catch (error) {
     console.error('Error executing non-query:', query, error);
     console.trace();
-    return false; // Return false on error
+    return false;
   }
 };
 

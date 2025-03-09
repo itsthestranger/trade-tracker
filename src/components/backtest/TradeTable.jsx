@@ -214,30 +214,56 @@ const TradeTable = ({ isBacktest = true, backtestId = null, onTradeUpdate }) => 
 
   const handleAddTrade = async () => {
     try {
+      console.log("Adding a new trade...");
+      
       // Get first instrument and entry method for defaults
       let defaultInstrumentId = null;
       let defaultEntryMethodId = null;
       
-      if (instruments.length > 0) {
+      // Try to get instruments from state first
+      if (Array.isArray(instruments) && instruments.length > 0) {
         defaultInstrumentId = instruments[0].id;
+        console.log("Using instrument from state:", defaultInstrumentId);
       } else {
-        const instrumentsStore = localforage.createInstance({ name: 'instruments' });
-        await instrumentsStore.iterate((value, key, iterationNumber) => {
-          if (iterationNumber === 1) {
-            defaultInstrumentId = value.id;
-          }
-        });
+        // Fallback to direct storage access
+        try {
+          const instrumentsStore = localforage.createInstance({ name: 'instruments' });
+          let found = false;
+          
+          await instrumentsStore.iterate((value) => {
+            if (!found) {
+              defaultInstrumentId = value.id;
+              found = true;
+              console.log("Using instrument from storage:", defaultInstrumentId);
+              return true; // Stop iteration
+            }
+          });
+        } catch (err) {
+          console.error("Failed to get instruments from storage:", err);
+        }
       }
       
-      if (entryMethods.length > 0) {
+      // Try to get entry methods from state first
+      if (Array.isArray(entryMethods) && entryMethods.length > 0) {
         defaultEntryMethodId = entryMethods[0].id;
+        console.log("Using entry method from state:", defaultEntryMethodId);
       } else {
-        const entryMethodsStore = localforage.createInstance({ name: 'entry_methods' });
-        await entryMethodsStore.iterate((value, key, iterationNumber) => {
-          if (iterationNumber === 1) {
-            defaultEntryMethodId = value.id;
-          }
-        });
+        // Fallback to direct storage access
+        try {
+          const entryMethodsStore = localforage.createInstance({ name: 'entry_methods' });
+          let found = false;
+          
+          await entryMethodsStore.iterate((value) => {
+            if (!found) {
+              defaultEntryMethodId = value.id;
+              found = true;
+              console.log("Using entry method from storage:", defaultEntryMethodId);
+              return true; // Stop iteration
+            }
+          });
+        } catch (err) {
+          console.error("Failed to get entry methods from storage:", err);
+        }
       }
       
       if (!defaultInstrumentId) {
@@ -249,42 +275,56 @@ const TradeTable = ({ isBacktest = true, backtestId = null, onTradeUpdate }) => 
       const time = new Date().toTimeString().substring(0, 5);
       const dayOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date().getDay()];
       
-      try {
-        executeNonQuery(`
-          INSERT INTO trades (
-            date, day, confirmation_time, entry_time, instrument_id, confirmation_type, 
-            direction, session, entry_method_id, stopped_out, status, 
-            entry, stop, target, is_backtest, is_planned, backtest_id
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [
-          today, 
-          dayOfWeek, 
-          time, 
-          time, 
-          defaultInstrumentId, 
-          'Wick Confirmation', 
-          'Long', 
-          'ODR', 
-          defaultEntryMethodId, 
-          0, 
-          'Winner', 
-          0, 
-          0, 
-          0, 
-          isBacktest ? 1 : 0, 
-          isBacktest ? 0 : 1, 
-          isBacktest ? backtestId : null
-        ]);
-        
-        // Refresh trades
-        fetchTrades();
-      } catch (error) {
-        console.error('Error adding trade:', error);
-        alert(`Error adding trade: ${error.message}`);
-      }
+      console.log("Inserting new trade with params:", {
+        date: today,
+        day: dayOfWeek,
+        time: time,
+        instrumentId: defaultInstrumentId,
+        entryMethodId: defaultEntryMethodId,
+        isBacktest: isBacktest,
+        backtestId: backtestId
+      });
+      
+      // Insert directly into the trades store instead of using executeNonQuery
+      const tradesStore = localforage.createInstance({ name: 'trades' });
+      
+      // Get current keys to determine next ID
+      const keys = await tradesStore.keys();
+      const ids = keys.map(k => parseInt(k)).filter(id => !isNaN(id));
+      const newId = ids.length > 0 ? Math.max(...ids) + 1 : 1;
+      
+      // Create the trade record
+      const tradeRecord = {
+        id: newId,
+        date: today,
+        day: dayOfWeek,
+        confirmation_time: time,
+        entry_time: time,
+        instrument_id: defaultInstrumentId,
+        confirmation_type: 'Wick Confirmation',
+        direction: 'Long',
+        session: 'ODR',
+        entry_method_id: defaultEntryMethodId,
+        stopped_out: 0,
+        status: 'Winner',
+        entry: 0,
+        stop: 0,
+        target: 0,
+        is_backtest: isBacktest ? 1 : 0,
+        is_planned: isBacktest ? 0 : 1,
+        backtest_id: isBacktest ? backtestId : null,
+        created_at: new Date().toISOString()
+      };
+      
+      // Save the trade directly
+      await tradesStore.setItem(newId.toString(), tradeRecord);
+      console.log("Successfully inserted trade with ID:", newId);
+      
+      // Refresh trades
+      fetchTrades();
     } catch (error) {
       console.error('Error in handleAddTrade:', error);
-      alert(`Error preparing to add trade: ${error.message}`);
+      alert(`Error adding trade: ${error.message}`);
     }
   };
 

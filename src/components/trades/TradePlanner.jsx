@@ -200,8 +200,14 @@ const TradePlanner = () => {
       
       // Fetch minimum required confluences
       const minConfluencesResult = executeQuery("SELECT value FROM app_settings WHERE key = 'minimumConfluencesRequired'");
-      if (ensureArray(minConfluencesResult).length > 0) {
-        setMinRequiredConfluences(parseInt(minConfluencesResult[0].value) || 3);
+      
+      // Fix: Use ensureArray and check if result has elements
+      const safeMinConfluencesResult = ensureArray(minConfluencesResult);
+      if (safeMinConfluencesResult.length > 0) {
+        setMinRequiredConfluences(parseInt(safeMinConfluencesResult[0].value) || 3);
+      } else {
+        // Default to 3 if not found
+        setMinRequiredConfluences(3);
       }
       
       // Set default selections if available

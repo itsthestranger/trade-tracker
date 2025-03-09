@@ -1,4 +1,5 @@
 // src/pages/Playbooks.jsx
+import localforage from 'localforage';
 import React, { useState, useEffect } from 'react';
 import { 
   Box, 
@@ -120,17 +121,38 @@ const Playbooks = () => {
   const fetchInstruments = async () => {
     try {
       setIsLoading(true);
+      console.log("Fetching instruments for Playbooks...");
       
-      // Fetch instruments
-      const instrumentsResult = executeQuery(`
-        SELECT * FROM instruments ORDER BY name
-      `);
+      // Direct access to instruments store for more reliable data retrieval
+      const instrumentsStore = localforage.createInstance({ name: 'instruments' });
+      const instrumentsList = [];
       
-      setInstruments(instrumentsResult);
+      // Get all instruments
+      await instrumentsStore.iterate((value) => {
+        instrumentsList.push(value);
+      });
+      
+      console.log(`Retrieved ${instrumentsList.length} instruments:`, instrumentsList);
+      
+      if (instrumentsList.length === 0) {
+        // If no instruments are found, try to seed default data
+        console.warn("No instruments found, attempting to seed default data...");
+        await seedDefaultInstruments();
+        
+        // Try fetching again
+        await instrumentsStore.iterate((value) => {
+          instrumentsList.push(value);
+        });
+        
+        console.log(`After seeding, retrieved ${instrumentsList.length} instruments`);
+      }
+      
+      // Set the instruments state
+      setInstruments(instrumentsList);
       
       // Select first instrument by default if available
-      if (instrumentsResult.length > 0) {
-        setSelectedInstrumentId(instrumentsResult[0].id);
+      if (instrumentsList.length > 0) {
+        setSelectedInstrumentId(instrumentsList[0].id);
       }
       
       setIsLoading(false);
@@ -138,6 +160,34 @@ const Playbooks = () => {
       console.error('Error fetching instruments:', err);
       setError(err);
       setIsLoading(false);
+    }
+  };
+  
+  // Helper function to seed default instruments if none exist
+  const seedDefaultInstruments = async () => {
+    try {
+      const instrumentsStore = localforage.createInstance({ name: 'instruments' });
+      
+      // Default instruments from defaultData.js
+      const defaultInstruments = [
+        { name: 'ES (E-mini S&P 500)', tickValue: 12.5, color: '#4CAF50' },
+        { name: 'NQ (E-mini Nasdaq-100)', tickValue: 5.0, color: '#2196F3' }
+      ];
+      
+      // Insert default instruments
+      for (let i = 0; i < defaultInstruments.length; i++) {
+        const id = i + 1;
+        await instrumentsStore.setItem(id.toString(), { 
+          id, 
+          ...defaultInstruments[i] 
+        });
+      }
+      
+      console.log("Successfully seeded default instruments");
+      return true;
+    } catch (error) {
+      console.error("Error seeding default instruments:", error);
+      return false;
     }
   };
   
@@ -418,7 +468,9 @@ const Playbooks = () => {
   const timeOptions = getConfirmationTimeOptions();
   
   // Find selected instrument name
-  const selectedInstrumentName = instruments.find(i => i.id === selectedInstrumentId)?.name || '';
+  const selectedInstrumentName = Array.isArray(instruments) && instruments.length > 0 
+    ? instruments.find(i => i.id === selectedInstrumentId)?.name || '' 
+    : '';
   
   if (isLoading) {
     return (

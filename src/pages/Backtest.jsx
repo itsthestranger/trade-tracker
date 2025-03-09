@@ -1,4 +1,5 @@
 // src/pages/Backtest.jsx
+import localforage from 'localforage';
 import React, { useState, useEffect } from 'react';
 import { 
   Box, 
@@ -110,32 +111,43 @@ const Backtest = () => {
     setNewBacktestDialogOpen(false);
   };
 
-  const handleNewBacktestCreate = () => {
+  const handleNewBacktestCreate = async () => {
     if (!newBacktestName.trim()) {
       setNewBacktestError('Backtest name is required');
       return;
     }
     
     try {
-      // Create new backtest
-      executeNonQuery(
-        'INSERT INTO backtests (name, created_at) VALUES (?, datetime("now"))',
-        [newBacktestName.trim()]
-      );
+      console.log("Creating new backtest:", newBacktestName);
       
-      // Get the ID of the new backtest
-      const newBacktestId = getLastInsertId();
+      // Access the backtests store directly
+      const backtestsStore = localforage.createInstance({ name: 'backtests' });
       
-      // Create the new backtest object
-      const newBacktest = {
-        id: newBacktestId,
+      // Get current keys to determine next ID
+      const keys = await backtestsStore.keys();
+      const ids = keys.map(k => parseInt(k)).filter(id => !isNaN(id));
+      const newId = ids.length > 0 ? Math.max(...ids) + 1 : 1;
+      
+      // Create backtest record
+      const backtestRecord = {
+        id: newId,
         name: newBacktestName.trim(),
-        created_at: new Date().toISOString(),
+        created_at: new Date().toISOString()
+      };
+      
+      // Save directly to storage
+      await backtestsStore.setItem(newId.toString(), backtestRecord);
+      console.log("Successfully created backtest with ID:", newId);
+      
+      // Create the new backtest object for state
+      const newBacktest = {
+        ...backtestRecord,
         tradeCount: 0
       };
       
       // Update the backtests list and select the new backtest
-      setBacktests([newBacktest, ...backtests]);
+      const safeBacktests = Array.isArray(backtests) ? backtests : [];
+      setBacktests([newBacktest, ...safeBacktests]);
       setSelectedBacktest(newBacktest);
       
       // Close the dialog
@@ -145,6 +157,7 @@ const Backtest = () => {
       setNewBacktestError('Failed to create backtest. Please try again.');
     }
   };
+  
 
   if (isLoading) {
     return (
